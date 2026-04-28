@@ -4599,9 +4599,8 @@ class DSLParser:
                     c_default = "NULL"
                 elif (isinstance(expr, ast.BinOp) or
                     (isinstance(expr, ast.UnaryOp) and
-                     not (isinstance(expr.operand, ast.Num) or
-                          (hasattr(ast, 'Constant') and
-                           isinstance(expr.operand, ast.Constant) and
+                     not ((hasattr(ast, 'Num') and isinstance(expr.operand, ast.Num)) or
+                          (isinstance(expr.operand, ast.Constant) and
                            type(expr.operand.value) in (int, float, complex)))
                     )):
                     c_default = kwargs.get("c_default")
@@ -4704,7 +4703,7 @@ class DSLParser:
             type(annotation.value) is str):
             return annotation.value, True, {}
 
-        if isinstance(annotation, ast.Str):
+        if hasattr(ast, 'Str') and isinstance(annotation, ast.Str):
             return annotation.s, True, {}
 
         if isinstance(annotation, ast.Name):
