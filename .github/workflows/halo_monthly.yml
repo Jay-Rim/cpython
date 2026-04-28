@@ -1,0 +1,44 @@
+name: HALO 월간 포트폴리오 리포트
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'   # 매월 1일 00:00 UTC = 09:00 KST
+  workflow_dispatch:        # 수동 실행 (GitHub Actions 탭에서 버튼 클릭)
+
+permissions:
+  contents: write           # state.json / history.csv 자동 커밋용
+
+jobs:
+  portfolio:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: portfolio/requirements.txt
+
+      - name: 패키지 설치
+        run: pip install -r portfolio/requirements.txt
+
+      - name: HALO 실행
+        env:
+          EMAIL_SENDER:       ${{ secrets.EMAIL_SENDER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENT:    ${{ secrets.EMAIL_RECIPIENT }}
+          MONTHLY_BASE_CASH:  ${{ secrets.MONTHLY_BASE_CASH }}
+          MONTHLY_EXTRA_CASH: ${{ secrets.MONTHLY_EXTRA_CASH }}
+        run: python portfolio/halo_v4.py
+
+      - name: state.json / history.csv 자동 커밋
+        run: |
+          git config user.name  "HALO Bot"
+          git config user.email "actions@github.com"
+          git add portfolio/data/state.json portfolio/data/history.csv
+          git diff --staged --quiet || git commit -m "chore: HALO $(date +'%Y-%m') 월간 업데이트 [skip ci]"
+          git push
