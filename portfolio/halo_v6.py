@@ -445,8 +445,10 @@ def build_email(d: dict) -> str:
 
 def send_email(subject: str, html: str) -> bool:
     cfg = EMAIL_CFG
-    if not all([cfg["user"], cfg["password"], cfg["sender"], cfg["recipient"]]):
-        log.warning("이메일 설정 불완전 → 건너뜀")
+    missing_keys = [k for k in ("user", "password", "sender", "recipient") if not cfg[k]]
+    if missing_keys:
+        log.warning(f"이메일 Secrets 미설정 → 건너뜀: {missing_keys}  "
+                    f"(SMTP_USER / SMTP_PASSWORD / SMTP_FROM / EMAIL_TO)")
         return False
     try:
         msg = MIMEMultipart("alternative")
@@ -461,8 +463,11 @@ def send_email(subject: str, html: str) -> bool:
             s.sendmail(cfg["sender"], cfg["recipient"], msg.as_string())
         log.info(f"이메일 발송 완료 → {cfg['recipient']}")
         return True
+    except smtplib.SMTPAuthenticationError:
+        log.error("이메일 인증 실패 — Gmail 앱 비밀번호(16자리)를 SMTP_PASSWORD에 설정했는지 확인")
+        return False
     except Exception as e:
-        log.error(f"이메일 실패: {e}")
+        log.error(f"이메일 발송 실패: {type(e).__name__}: {e}")
         return False
 
 # ─────────────────────────────────────────────
@@ -479,8 +484,8 @@ def run():
     missing = [t for t in ALL_TICKERS
                if t not in last.index or pd.isna(last.get(t))]
     if missing:
-        log.error(f"가격 없는 티커 {missing} — 티커를 앱에서 확인하세요")
-        sys.exit(1)
+        names = [FULL_NAME.get(t, t) for t in missing]
+        raise RuntimeError(f"가격 없는 티커: {names} — yfinance 티커 확인 필요")
 
     spy_dd, vix = get_spy_vix()
 
@@ -571,9 +576,25 @@ def run():
     return orders, w, mode, picks
 
 
+def _send_error_email(err: Exception):
+    """스크립트 실패 시 에러 알림 이메일 발송"""
+    import traceback
+    tb = traceback.format_exc()
+    html = f"""<!DOCTYPE html><html><body style='font-family:Arial,sans-serif;padding:20px'>
+<h2 style='color:#c0392b'>⚠ HALO v6 실행 실패</h2>
+<p><b>시각:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<p><b>오류:</b> {err}</p>
+<pre style='background:#f8f9fa;padding:12px;border-radius:4px;font-size:12px;overflow-x:auto'>{tb}</pre>
+<p style='color:#888;font-size:11px'>GitHub Actions 로그에서 상세 내용을 확인하세요.</p>
+</body></html>"""
+    subject = f"[HALO v6] ⚠ 실행 실패 — {datetime.now().strftime('%Y-%m-%d')}"
+    send_email(subject, html)
+
+
 if __name__ == "__main__":
     try:
         run()
     except Exception as e:
         log.error(f"실행 실패: {e}")
+        _send_error_email(e)
         sys.exit(1)
