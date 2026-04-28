@@ -44,6 +44,7 @@ SCRIPT_DIR    = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR      = os.path.join(SCRIPT_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 HOLDINGS_PATH = os.path.join(DATA_DIR, "holdings_v6.csv")
+REPORT_PATH   = os.path.join(DATA_DIR, "latest_report.json")
 STATE_PATH    = os.path.join(DATA_DIR, "state_v6.json")
 HISTORY_PATH  = os.path.join(DATA_DIR, "history_v6.csv")
 
@@ -353,6 +354,49 @@ def generate_orders_full_rebalance(
     return orders, nav, buy_cost - sell_val
 
 # ─────────────────────────────────────────────
+# 결과 파일 저장 (챗창 표시용)
+# ─────────────────────────────────────────────
+def save_report(data: dict, orders: pd.DataFrame):
+    """latest_report.json — git 커밋 후 Claude가 읽어서 챗창에 표시"""
+    orders_list = []
+    if orders is not None and len(orders) > 0:
+        for _, r in orders.iterrows():
+            orders_list.append({
+                "ticker": r["ticker"],
+                "name":   FULL_NAME.get(r["ticker"], r["ticker"]),
+                "side":   r["side"],
+                "shares": int(r["shares"]),
+                "price":  float(r["price"]),
+                "amount": int(r["shares"]) * float(r["price"]),
+            })
+
+    scores_clean = {
+        k: round(v * 100, 2) if v != float("-inf") else None
+        for k, v in data["scores"].items()
+    }
+
+    report = {
+        "date":        data["date"],
+        "run_at":      datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "mode":        data["mode"],
+        "picks":       [{"ticker": t, "name": FULL_NAME.get(t, t)} for t in data["picks"]],
+        "scores_pct":  scores_clean,
+        "nav":         round(data["nav"]),
+        "port_dd_pct": round(data["port_dd"] * 100, 2),
+        "spy_dd_pct":  round(data["spy_dd"] * 100, 2),
+        "vix":         round(data["vix"], 1) if data["vix"] else None,
+        "cash":        data["cash"],
+        "used":        round(data["used"]),
+        "leftover":    round(data["cash"] - data["used"]),
+        "rebalanced":  data["rebalanced"],
+        "orders":      orders_list,
+    }
+    with open(REPORT_PATH, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+    log.info(f"결과 저장: {REPORT_PATH}")
+
+
+# ─────────────────────────────────────────────
 # 히스토리
 # ─────────────────────────────────────────────
 def append_history(row: dict):
@@ -569,6 +613,8 @@ def run():
         "orders":     orders,
         "rebalanced": rebalance,
     }
+    save_report(report_data, orders)
+
     html    = build_email(report_data)
     subject = f"[HALO v6] {datetime.now().strftime('%Y년 %m월')} VAA 리포트 — {mode}"
     send_email(subject, html)

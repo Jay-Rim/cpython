@@ -8,7 +8,8 @@ on:
   workflow_dispatch:        # GitHub Actions 탭에서 수동 실행 가능
 
 permissions:
-  contents: write           # state_v6.json / history_v6.csv 자동 커밋용
+  contents: write           # state_v6.json / history_v6.csv / latest_report.json 커밋용
+  issues: write             # 결과 댓글 게시용
 
 jobs:
   portfolio:
@@ -60,12 +61,75 @@ jobs:
           IRP_MODE:          ${{ secrets.IRP_MODE }}
         run: python portfolio/halo_v6.py
 
+      - name: 결과 요약 (GitHub Actions Summary + 챗창용)
+        if: steps.check.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys
+          try:
+              with open("portfolio/data/latest_report.json", encoding="utf-8") as f:
+                  r = json.load(f)
+          except Exception as e:
+              print(f"리포트 파일 읽기 실패: {e}", file=sys.stderr)
+              sys.exit(0)
+
+          mode_icon = "🟢" if r["mode"] == "OFFENSIVE" else "🔴"
+          picks_str = " / ".join(p["name"] for p in r["picks"])
+          order_rows = ""
+          for o in r["orders"]:
+              icon = "📈" if o["side"] == "BUY" else "📉"
+              order_rows += f"| {icon} {o['side']} | {o['name']} | {o['shares']:,}주 | {o['price']:,.0f}원 | {o['amount']:,.0f}원 |\n"
+          if not order_rows:
+              order_rows = "| — | 주문 없음 | | | |\n"
+
+          score_rows = ""
+          for t, s in sorted(r["scores_pct"].items(), key=lambda x: -(x[1] or -9999)):
+              icon = "▲" if (s or 0) >= 0 else "▼"
+              score_str = f"{s:+.2f}%" if s is not None else "N/A"
+              score_rows += f"| {t} | {icon} {score_str} |\n"
+
+          summary = f"""## 📊 HALO v6 VAA 리포트 — {r["date"]}
+
+          > 실행: {r["run_at"]}  |  {'전체 리밸런싱' if r["rebalanced"] else '매수 전용'}
+
+          ### {mode_icon} {r["mode"]} 모드
+          **선택 ETF:** {picks_str}
+
+          | 지표 | 값 |
+          |---|---|
+          | NAV | **{r["nav"]:,}원** |
+          | 포트폴리오 DD | {r["port_dd_pct"]:+.2f}% |
+          | SPY DD | {r["spy_dd_pct"]:+.2f}% |
+          | VIX | {r["vix"] or "N/A"} |
+          | 투입 | {r["cash"]:,}원 |
+          | 집행 | {r["used"]:,}원 |
+          | 미집행 | {r["leftover"]:,}원 |
+
+          ### 주문 내역
+          | 구분 | 종목 | 수량 | 단가 | 금액 |
+          |---|---|---|---|---|
+          {order_rows}
+          ### VAA 모멘텀 점수
+          | 티커 | 점수 |
+          |---|---|
+          {score_rows}
+          """
+          summary = "\n".join(line.strip() for line in summary.splitlines())
+
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+          if step_summary:
+              with open(step_summary, "a", encoding="utf-8") as f:
+                  f.write(summary)
+          print(summary)
+          PYEOF
+
       - name: 변경 파일 자동 커밋
         if: steps.check.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           git config user.name  "HALO Bot"
           git config user.email "actions@github.com"
-          git add portfolio/data/state_v6.json portfolio/data/history_v6.csv
+          git add portfolio/data/state_v6.json portfolio/data/history_v6.csv \
+                  portfolio/data/latest_report.json
           git diff --staged --quiet || \
             git commit -m "chore: HALO v6 $(date +'%Y-%m') 월간 업데이트 [skip ci]"
           git push
