@@ -2,7 +2,9 @@ name: HALO 월간 포트폴리오 리포트
 
 on:
   schedule:
-    - cron: '0 0 1 * *'   # 매월 1일 00:00 UTC = 09:00 KST
+    # 매월 25~27일 평일 00:00 UTC(09:00 KST) 트리거
+    # 25일이 평일이면 25일, 토요일이면 27일(월), 일요일이면 26일(월)에만 실행
+    - cron: '0 0 25-27 * 1-5'
   workflow_dispatch:        # GitHub Actions 탭에서 수동 실행 가능
 
 permissions:
@@ -13,10 +15,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: 실행 날짜 검증 (25일 평일 기준)
+        id: check
+        run: |
+          DAY=$(date -u +%d)
+          DOW=$(date -u +%u)   # 1=월 … 7=일
+          RUN=false
+          if   [ "$DAY" = "25" ]; then
+            RUN=true            # 25일이 평일 → 바로 실행
+          elif [ "$DAY" = "26" ] && [ "$DOW" = "1" ]; then
+            RUN=true            # 26일 월요일 → 25일이 일요일이었음
+          elif [ "$DAY" = "27" ] && [ "$DOW" = "1" ]; then
+            RUN=true            # 27일 월요일 → 25일이 토요일이었음
+          fi
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "오늘: $(date -u +'%Y-%m-%d') (요일=$DOW) → run=$RUN"
+
       - name: 코드 체크아웃
+        if: steps.check.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v4
 
       - name: Python 3.11 설정
+        if: steps.check.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -24,9 +44,11 @@ jobs:
           cache-dependency-path: portfolio/requirements.txt
 
       - name: 패키지 설치
+        if: steps.check.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         run: pip install -r portfolio/requirements.txt
 
       - name: HALO v6.0 실행
+        if: steps.check.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         env:
           MONTHLY_BASE_CASH: ${{ secrets.MONTHLY_BASE_CASH }}
           SMTP_HOST:         ${{ secrets.SMTP_HOST }}
@@ -39,6 +61,7 @@ jobs:
         run: python portfolio/halo_v6.py
 
       - name: 변경 파일 자동 커밋
+        if: steps.check.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           git config user.name  "HALO Bot"
           git config user.email "actions@github.com"
