@@ -55,10 +55,12 @@ IRP_MODE     = os.environ.get("IRP_MODE", "true").lower() == "true"  # IRP 70% �
 EQUITY_CAP   = 0.70 if IRP_MODE else 1.00
 
 EMAIL_CFG = {
-    "smtp_host": "smtp.gmail.com", "smtp_port": 465,
-    "sender":    os.environ.get("EMAIL_SENDER",       ""),
-    "app_pw":    os.environ.get("GMAIL_APP_PASSWORD",  ""),
-    "recipient": os.environ.get("EMAIL_RECIPIENT",    ""),
+    "smtp_host": os.environ.get("SMTP_HOST",     "smtp.gmail.com"),
+    "smtp_port": int(os.environ.get("SMTP_PORT", "587")),
+    "user":      os.environ.get("SMTP_USER",     ""),
+    "password":  os.environ.get("SMTP_PASSWORD", ""),
+    "sender":    os.environ.get("SMTP_FROM",     ""),
+    "recipient": os.environ.get("EMAIL_TO",      ""),
 }
 
 # ─────────────────────────────────────────────
@@ -432,7 +434,7 @@ def build_email(d: dict) -> str:
 
 def send_email(subject: str, html: str) -> bool:
     cfg = EMAIL_CFG
-    if not all([cfg["sender"], cfg["app_pw"], cfg["recipient"]]):
+    if not all([cfg["user"], cfg["password"], cfg["sender"], cfg["recipient"]]):
         log.warning("이메일 설정 불완전 → 건너뜀")
         return False
     try:
@@ -441,8 +443,10 @@ def send_email(subject: str, html: str) -> bool:
         msg["From"]    = cfg["sender"]
         msg["To"]      = cfg["recipient"]
         msg.attach(MIMEText(html, "html", "utf-8"))
-        with smtplib.SMTP_SSL(cfg["smtp_host"], cfg["smtp_port"]) as s:
-            s.login(cfg["sender"], cfg["app_pw"])
+        with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as s:
+            s.ehlo()
+            s.starttls()
+            s.login(cfg["user"], cfg["password"])
             s.sendmail(cfg["sender"], cfg["recipient"], msg.as_string())
         log.info(f"이메일 발송 완료 → {cfg['recipient']}")
         return True

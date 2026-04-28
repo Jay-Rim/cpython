@@ -28,11 +28,14 @@ jobs:
 
       - name: HALO v6.0 실행
         env:
-          MONTHLY_BASE_CASH:  ${{ secrets.MONTHLY_BASE_CASH }}
-          EMAIL_SENDER:       ${{ secrets.EMAIL_SENDER }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          EMAIL_RECIPIENT:    ${{ secrets.EMAIL_RECIPIENT }}
-          IRP_MODE:           ${{ secrets.IRP_MODE }}
+          MONTHLY_BASE_CASH: ${{ secrets.MONTHLY_BASE_CASH }}
+          SMTP_HOST:         ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:         ${{ secrets.SMTP_PORT }}
+          SMTP_USER:         ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD:     ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM:         ${{ secrets.SMTP_FROM }}
+          EMAIL_TO:          ${{ secrets.EMAIL_TO }}
+          IRP_MODE:          ${{ secrets.IRP_MODE }}
         run: python portfolio/halo_v6.py
 
       - name: 변경 파일 자동 커밋
