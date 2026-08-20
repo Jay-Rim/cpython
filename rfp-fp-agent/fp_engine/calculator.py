@@ -2,12 +2,13 @@
 
 확실성(certainty) 강제 규칙 — 설계원칙 4의 실제 집행 지점:
 
-  MEASURED     → 확정 FP(confirmed_fp)에 포함
+  MEASURED     → 기능 유형도 사람 승인된 경우 확정 FP(confirmed_fp)에 포함
   ESTIMATED    → 잠정 FP(provisional_fp)로 분리. 확정 총계에 섞이지 않는다
   UNKNOWN      → 값 자체가 존재할 수 없다(types.Counted 가 거부)
   NEEDS_REVIEW → 값이 있어도 사용 거부. InsufficientData
 
-즉 "근거 없음/검토 필요" 값이 확정 FP 총계에 들어가는 경로는 없다.
+기능 유형은 APPROVED/MODIFIED 일 때만 확정 가능하다. 즉 "근거 없음/검토 필요"
+값이나 AI 미승인 후보가 확정 FP 총계에 들어가는 경로는 없다.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from .types import (
     FunctionResult,
     FunctionType,
     Method,
+    ReviewStatus,
 )
 
 
@@ -47,9 +49,19 @@ def _weakest(*counts: Counted) -> Certainty:
 
 
 def calculate_function(func: FPFunction, method: Method) -> FunctionResult:
-    """기능 1건의 FP. 간이법은 카운트를 쓰지 않으므로 확실성 판정 대상이 아니다."""
+    """기능 1건의 FP. 유형이 사람에게 승인되어야 확정값이 될 수 있다."""
     if method is Method.SIMPLE:
         weight = AVERAGE_WEIGHTS[func.function_type]
+        confirmation = (
+            Confirmation.CONFIRMED
+            if func.review_status.is_confirmed
+            else Confirmation.PROVISIONAL
+        )
+        review_note = (
+            ""
+            if confirmation is Confirmation.CONFIRMED
+            else f" [잠정: 기능 유형 미승인(status={func.review_status.value})]"
+        )
         return FunctionResult(
             function_id=func.id,
             function_type=func.function_type,
@@ -57,13 +69,24 @@ def calculate_function(func: FPFunction, method: Method) -> FunctionResult:
             complexity=None,
             weight=weight,
             fp=weight,
-            derivation=f"간이법 평균복잡도 가중치({func.function_type.value})={weight}",
-            confirmation=Confirmation.CONFIRMED,
+            derivation=(
+                f"간이법 평균복잡도 가중치({func.function_type.value})={weight}"
+                f"{review_note}"
+            ),
+            confirmation=confirmation,
             count_certainty=None,
+            review_status=func.review_status,
         )
 
     det, axis2 = func.sizing_counts
     axis_name = "RET" if func.function_type.is_data_function else "FTR"
+
+    if det.value is not None and det.value < 1:
+        raise ValueError(f"{func.function_type.value} '{func.name}': DET 은 최소 1이어야 한다")
+    if func.function_type.is_data_function and axis2.value is not None and axis2.value < 1:
+        raise ValueError(f"{func.function_type.value} '{func.name}': RET 는 최소 1이어야 한다")
+    if func.function_type is FunctionType.EQ and axis2.value is not None and axis2.value < 1:
+        raise ValueError(f"EQ '{func.name}': FTR 은 최소 1이어야 한다")
 
     # ── 확실성 게이트: 값이 있어도 쓸 수 없는 경우를 먼저 걸러낸다 ──
     for count, label in ((det, "DET"), (axis2, axis_name)):
@@ -81,10 +104,19 @@ def calculate_function(func: FPFunction, method: Method) -> FunctionResult:
     certainty = _weakest(det, axis2)
     confirmation = (
         Confirmation.CONFIRMED
-        if certainty.is_confirmable
+        if certainty.is_confirmable and func.review_status.is_confirmed
         else Confirmation.PROVISIONAL
     )
-    note = "" if confirmation is Confirmation.CONFIRMED else " [잠정: 추정 카운트 포함]"
+    provisional_reasons = []
+    if not certainty.is_confirmable:
+        provisional_reasons.append("추정 카운트 포함")
+    if not func.review_status.is_confirmed:
+        provisional_reasons.append(f"기능 유형 미승인(status={func.review_status.value})")
+    note = (
+        ""
+        if not provisional_reasons
+        else f" [잠정: {', '.join(provisional_reasons)}]"
+    )
 
     return FunctionResult(
         function_id=func.id,
@@ -96,6 +128,7 @@ def calculate_function(func: FPFunction, method: Method) -> FunctionResult:
         derivation=f"{derivation}; 가중치={weight:g} (표 3-20){note}",
         confirmation=confirmation,
         count_certainty=certainty,
+        review_status=func.review_status,
     )
 
 
@@ -112,6 +145,7 @@ def calculate_from_complexities(
                 derivation=f"복잡도 {complexity.value} 직접 지정; 가중치={weight:g}",
                 confirmation=Confirmation.CONFIRMED,
                 count_certainty=Certainty.MEASURED,
+                review_status=ReviewStatus.APPROVED,
             )
         )
     return _aggregate(results, Method.DETAILED, (), ())
@@ -156,6 +190,7 @@ def calculate(
                         ),
                         confirmation=Confirmation.PROVISIONAL,
                         count_certainty=_weakest(*func.sizing_counts),
+                        review_status=func.review_status,
                     )
                 )
             elif skip_unresolved:

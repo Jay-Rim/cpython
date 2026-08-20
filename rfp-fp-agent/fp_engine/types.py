@@ -71,6 +71,19 @@ class Confirmation(str, Enum):
     PROVISIONAL = "PROVISIONAL"  # 추정값 또는 간이법 대체가 섞임
 
 
+class ReviewStatus(str, Enum):
+    """기능 유형/단위프로세스에 대한 사람 검토 상태."""
+
+    AI_PROPOSED = "AI_PROPOSED"
+    NEED_REVIEW = "NEED_REVIEW"
+    APPROVED = "APPROVED"
+    MODIFIED = "MODIFIED"
+
+    @property
+    def is_confirmed(self) -> bool:
+        return self in (ReviewStatus.APPROVED, ReviewStatus.MODIFIED)
+
+
 @dataclass(frozen=True)
 class Counted:
     """카운트 값 + 확실성 + 근거를 함께 운반하는 값 객체."""
@@ -80,6 +93,10 @@ class Counted:
     rationale: str = ""
 
     def __post_init__(self) -> None:
+        if self.value is not None and (
+            isinstance(self.value, bool) or not isinstance(self.value, int)
+        ):
+            raise TypeError(f"count must be an integer or None, got {self.value!r}")
         if self.value is not None and self.value < 0:
             raise ValueError(f"count must be >= 0, got {self.value}")
         if self.value is None and self.certainty.is_usable:
@@ -115,6 +132,7 @@ class FPFunction:
     id: str
     name: str
     function_type: FunctionType
+    review_status: ReviewStatus
     det: Counted = UNKNOWN_COUNT
     ret: Counted = UNKNOWN_COUNT   # 데이터기능(ILF/EIF)에서만 사용
     ftr: Counted = UNKNOWN_COUNT   # 트랜잭션기능(EI/EO/EQ)에서만 사용
@@ -143,6 +161,7 @@ class FunctionResult:
     derivation: str  # 어떤 표/어떤 셀에서 나왔는지 사람이 읽을 수 있는 근거
     confirmation: Confirmation = Confirmation.CONFIRMED
     count_certainty: Optional[Certainty] = None  # 투입된 카운트 중 가장 약한 확실성
+    review_status: ReviewStatus = ReviewStatus.APPROVED
 
     @property
     def is_provisional(self) -> bool:
@@ -154,14 +173,14 @@ class FPResult:
     """프로젝트 전체 FP 결과.
 
     total_fp 하나만 보고 계약 baseline 을 잡으면 안 된다.
-    confirmed_fp(근거 있는 값만)와 provisional_fp(추정 포함)를 분리해 제공하며,
+    confirmed_fp(사람이 승인한 기능 + 근거 있는 값)와 provisional_fp(미승인/추정 포함)를 분리해 제공하며,
     unresolved_function_ids 는 아예 산정되지 못한 기능이다.
     """
 
     method: Method
     total_fp: float           # confirmed + provisional
-    confirmed_fp: float       # MEASURED 카운트만으로 산정된 FP
-    provisional_fp: float     # ESTIMATED 또는 간이법 대체가 섞인 FP
+    confirmed_fp: float       # 승인된 기능 + MEASURED 카운트로 산정된 FP
+    provisional_fp: float     # 미승인 기능, ESTIMATED, 간이법 대체가 섞인 FP
     data_fp: float
     transaction_fp: float
     by_type: dict[str, float]
@@ -169,11 +188,6 @@ class FPResult:
     functions: tuple[FunctionResult, ...]
     excluded_function_ids: tuple[str, ...] = ()
     unresolved_function_ids: tuple[str, ...] = ()  # 카운트 부족으로 산정 불가
-
-    @property
-    def fp_range(self) -> tuple[float, float]:
-        """(하한, 상한) = (확정만, 확정+잠정). 미산정 기능은 어느 쪽에도 없다."""
-        return (self.confirmed_fp, self.total_fp)
 
     @property
     def is_fully_confirmed(self) -> bool:

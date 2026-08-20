@@ -93,6 +93,12 @@ def calculate_cost(
     """
     pack: RulePack = get_rule_pack(edition)
 
+    if not math.isfinite(total_fp) or total_fp <= 0:
+        raise ValueError(f"total_fp는 0보다 큰 유한수여야 한다 (got {total_fp})")
+    if isinstance(direct_expense, bool) or not isinstance(direct_expense, int) or direct_expense < 0:
+        raise ValueError(f"직접경비는 0 이상의 정수여야 한다 (got {direct_expense})")
+    if not math.isfinite(profit_rate):
+        raise ValueError(f"이윤율은 유한수여야 한다 (got {profit_rate})")
     if not 0 <= profit_rate <= PROFIT_RATE_MAX:
         raise ValueError(
             f"이윤율은 0~{PROFIT_RATE_MAX} 범위여야 한다 (국가계약법 시행규칙 제8조)"
@@ -112,7 +118,18 @@ def calculate_cost(
         unknown = [p for p in phases if p not in table]
         if unknown:
             raise ValueError(f"{pack.edition}년판에 없는 단계: {unknown}. 사용 가능: {sorted(table)}")
+        if len(phases) != len(set(phases)):
+            raise ValueError(f"단계는 중복 지정할 수 없다: {phases}")
+        development_phases = set(phases) & set(pack.phase_weights)
+        split_contract_phases = set(phases) & set(pack.split_order_weights)
+        if development_phases and split_contract_phases:
+            raise ValueError(
+                "개발 단계(분석/설계/구현/시험)와 분할발주 구분"
+                "(설계사업/구축사업)을 한 계산에서 혼합할 수 없다"
+            )
         phase_weight = sum((Decimal(str(table[p])) for p in phases), Decimal("0"))
+        if not Decimal("0") < phase_weight <= Decimal("1"):
+            raise ValueError(f"단계별 가중치 합은 0 초과 1 이하여야 한다 (got {phase_weight})")
         derivations.append(
             f"단계별 가중치 합({'+'.join(phases)}) = {phase_weight} (표 3-22)"
         )
@@ -124,6 +141,11 @@ def calculate_cost(
 
     factors: dict[str, float] = {}
     if size_factor_override is not None:
+        if not math.isfinite(size_factor_override) or size_factor_override <= 0:
+            raise ValueError(
+                f"규모 보정계수 직접지정값은 0보다 큰 유한수여야 한다 "
+                f"(got {size_factor_override})"
+            )
         factors["규모"] = size_factor_override
         derivations.append(f"규모 보정계수(직접지정) = {size_factor_override}")
     else:

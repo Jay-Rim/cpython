@@ -60,6 +60,12 @@ def _candidate(**overrides):
         "requirement_ids": ["REQ-001"],
         "name": "계약내역 조회",
         "function_type": "EQ",
+        "classification_rationale": "파생데이터 없이 계약내역을 조회하므로 EQ",
+        "unit_process_check": {
+            "is_self_contained": True,
+            "is_meaningful_to_user": True,
+            "leaves_business_consistent": True,
+        },
         "evidence": [{"page": 47, "quote": "계약내역을 조회"}],
         "confidence": 0.8,
         "status": "AI_PROPOSED",
@@ -84,6 +90,47 @@ def test_null_function_type_requires_insufficient_info_and_questions():
                                     open_questions=["q"]))
     # 유형 null 인데 되물을 질문이 없으면 거부
     assert not _valid(v, _candidate(function_type=None, status="INSUFFICIENT_INFO"))
+    assert not _valid(v, _candidate(
+        function_type=None, status="INSUFFICIENT_INFO", open_questions=[],
+    ))
+
+
+def test_classified_candidate_requires_rationale_and_unit_process_check():
+    v = _sub_validator("#/properties/function_candidates/items")
+    missing_rationale = _candidate()
+    del missing_rationale["classification_rationale"]
+    assert not _valid(v, missing_rationale)
+
+    missing_check = _candidate()
+    del missing_check["unit_process_check"]
+    assert not _valid(v, missing_check)
+
+
+def test_ai_proposed_candidate_must_pass_unit_process_check():
+    v = _sub_validator("#/properties/function_candidates/items")
+    candidate = _candidate()
+    candidate["unit_process_check"]["is_self_contained"] = False
+    assert not _valid(v, candidate)
+
+
+@pytest.mark.parametrize(
+    "function_type,count_name",
+    [("ILF", "det"), ("ILF", "ret"), ("EQ", "ftr")],
+)
+def test_candidate_rejects_impossible_zero_counts(function_type, count_name):
+    v = _sub_validator("#/properties/function_candidates/items")
+    candidate = _candidate(
+        function_type=function_type,
+        counts={
+            count_name: {
+                "value": 0,
+                "certainty": "MEASURED",
+                "rationale": "문서에서 식별",
+                "items": ["항목"],
+            }
+        },
+    )
+    assert not _valid(v, candidate)
 
 
 def test_evidence_is_mandatory():

@@ -18,6 +18,7 @@ from .types import (
     FunctionResult,
     FunctionType,
     Method,
+    ReviewStatus,
 )
 from .validator import Finding, validate
 
@@ -25,7 +26,7 @@ __all__ = [
     "calculate", "calculate_from_complexities", "calculate_function",
     "determine_complexity", "InsufficientData",
     "calculate_cost", "size_adjustment_factor", "app_complexity_factor", "CostResult",
-    "FunctionType", "Complexity", "Method", "Certainty", "Confirmation", "Counted",
+    "FunctionType", "Complexity", "Method", "Certainty", "Confirmation", "ReviewStatus", "Counted",
     "RulePack", "RULE_PACKS", "LATEST_EDITION", "get_rule_pack",
     "FPFunction", "FPResult", "FunctionResult",
     "validate", "Finding",

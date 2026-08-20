@@ -21,6 +21,7 @@ from fp_engine import (  # noqa: E402
     FPFunction,
     FunctionType,
     Method,
+    ReviewStatus,
     calculate,
     calculate_cost,
     calculate_from_complexities,
@@ -192,6 +193,18 @@ def test_split_order_categories_are_edition_specific():
         calculate_cost(1000, edition="2020", complexity_levels=_lvl(), phases=["설계사업"])
 
 
+@pytest.mark.parametrize(
+    "phases,match",
+    [
+        (["분석", "분석"], "중복"),
+        (["분석", "설계사업"], "혼합"),
+    ],
+)
+def test_phase_schemes_cannot_be_duplicated_or_mixed(phases, match):
+    with pytest.raises(ValueError, match=match):
+        calculate_cost(1000, edition="2025", complexity_levels=_lvl(), phases=phases)
+
+
 def _lvl():
     return {"연계복잡성": 3, "성능요구수준": 3, "운영환경호환성": 2, "보안성수준": 2}
 
@@ -206,6 +219,28 @@ def test_missing_adjustment_level_is_rejected():
         calculate_cost(100, edition="2025", complexity_levels={"연계복잡성": 3})
 
 
+@pytest.mark.parametrize("total_fp", [0, -1, math.inf, math.nan])
+def test_invalid_total_fp_is_rejected(total_fp):
+    with pytest.raises(ValueError, match="total_fp"):
+        calculate_cost(total_fp, edition="2025", complexity_levels=_lvl())
+
+
+def test_negative_direct_expense_is_rejected():
+    with pytest.raises(ValueError, match="직접경비"):
+        calculate_cost(
+            100, edition="2025", complexity_levels=_lvl(), direct_expense=-1,
+        )
+
+
+@pytest.mark.parametrize("factor", [0, -1, math.inf, math.nan])
+def test_invalid_size_factor_override_is_rejected(factor):
+    with pytest.raises(ValueError, match="규모 보정계수"):
+        calculate_cost(
+            100, edition="2025", complexity_levels=_lvl(),
+            size_factor_override=factor,
+        )
+
+
 # --- 확실성(certainty) 강제: 설계원칙 4의 회귀 방지 ---
 
 
@@ -215,11 +250,36 @@ def test_unknown_cannot_carry_a_value():
         Counted(20, Certainty.UNKNOWN, "지어낸 값")
 
 
+@pytest.mark.parametrize("value", [True, 1.5, "1"])
+def test_count_value_must_be_an_integer(value):
+    with pytest.raises(TypeError, match="integer"):
+        Counted(value, Certainty.MEASURED, "잘못된 입력")
+
+
+@pytest.mark.parametrize(
+    "ftype,det,ret,ftr,match",
+    [
+        (FT.ILF, 0, 1, None, "DET"),
+        (FT.ILF, 1, 0, None, "RET"),
+        (FT.EIF, 1, 0, None, "RET"),
+        (FT.EQ, 1, None, 0, "FTR"),
+    ],
+)
+def test_impossible_zero_counts_are_rejected(ftype, det, ret, ftr, match):
+    with pytest.raises(ValueError, match=match):
+        calculate([_f("F1", "기능", ftype, det=det, ret=ret, ftr=ftr)], Method.DETAILED)
+
+
+def test_ei_allows_zero_ftr():
+    result = calculate([_f("F1", "등록", FT.EI, det=1, ftr=0)], Method.DETAILED)
+    assert result.total_fp == 3
+
+
 @pytest.mark.parametrize("certainty", [Certainty.NEEDS_REVIEW])
 def test_unusable_counts_are_refused_in_detailed(certainty):
     """값이 있어도 검토 전이면 정통법 산정에 쓸 수 없다."""
     f = FPFunction(
-        "F1", "매출집계", FT.EO,
+        "F1", "매출집계", FT.EO, ReviewStatus.APPROVED,
         det=Counted(20, certainty, "검토 필요"),
         ftr=Counted(4, certainty, "검토 필요"),
     )
@@ -230,12 +290,12 @@ def test_unusable_counts_are_refused_in_detailed(certainty):
 def test_estimated_counts_are_provisional_not_confirmed():
     """추정 카운트는 계산되지만 확정 FP 총계에 섞이지 않는다."""
     measured = FPFunction(
-        "F1", "고객정보", FT.ILF,
+        "F1", "고객정보", FT.ILF, ReviewStatus.APPROVED,
         det=Counted(25, Certainty.MEASURED, "테이블정의서"),
         ret=Counted(3, Certainty.MEASURED, "서브그룹 3"),
     )
     estimated = FPFunction(
-        "F2", "매출집계", FT.EO,
+        "F2", "매출집계", FT.EO, ReviewStatus.APPROVED,
         det=Counted(20, Certainty.ESTIMATED, "유사기능 추정"),
         ftr=Counted(4, Certainty.ESTIMATED, "유사기능 추정"),
     )
@@ -244,19 +304,30 @@ def test_estimated_counts_are_provisional_not_confirmed():
     assert result.confirmed_fp == 10          # ILF 보통
     assert result.provisional_fp == 7         # EO 높음
     assert result.total_fp == 17
-    assert result.fp_range == (10, 17)
     assert not result.is_fully_confirmed
     assert result.functions[1].confirmation is Confirmation.PROVISIONAL
     assert result.functions[1].count_certainty is Certainty.ESTIMATED
     assert "잠정" in result.functions[1].derivation
 
 
-def test_simple_method_result_is_confirmed_because_counts_are_unused():
-    """간이법은 DET/FTR 을 쓰지 않으므로 카운트 확실성의 영향을 받지 않는다."""
+def test_simple_method_result_is_confirmed_after_human_approval():
     result = calculate([_f("F1", "고객정보", FT.ILF)], Method.SIMPLE)
     assert result.confirmed_fp == 7.5
     assert result.provisional_fp == 0
     assert result.is_fully_confirmed
+
+
+def test_ai_proposed_simple_function_is_provisional():
+    """RFP 단계 간이법도 사람 승인 전에는 계약 baseline 이 아니다."""
+    result = calculate(
+        [_f("F1", "고객정보", FT.ILF, review_status=ReviewStatus.AI_PROPOSED)],
+        Method.SIMPLE,
+    )
+    assert result.confirmed_fp == 0
+    assert result.provisional_fp == 7.5
+    assert not result.is_fully_confirmed
+    assert result.functions[0].review_status is ReviewStatus.AI_PROPOSED
+    assert "기능 유형 미승인" in result.functions[0].derivation
 
 
 def test_unresolved_functions_are_reported_not_hidden():
@@ -272,10 +343,16 @@ def test_unresolved_functions_are_reported_not_hidden():
 # --- 간이법 / Early FP ---
 
 
-def _f(fid, name, ftype, det=None, ret=None, ftr=None):
+def _f(
+    fid, name, ftype, det=None, ret=None, ftr=None,
+    review_status=ReviewStatus.APPROVED,
+):
     def c(v):
         return Counted(v, Certainty.MEASURED, "test") if v is not None else Counted(None)
-    return FPFunction(fid, name, ftype, det=c(det), ret=c(ret), ftr=c(ftr))
+    return FPFunction(
+        fid, name, ftype, review_status,
+        det=c(det), ret=c(ret), ftr=c(ftr),
+    )
 
 
 def test_simple_method_uses_average_weights():
@@ -308,7 +385,10 @@ def test_hybrid_fallback_is_traceable_and_provisional():
 
 
 def test_excluded_functions_are_reported_not_silently_dropped():
-    f = FPFunction("F9", "로그아웃", FT.EQ, excluded=True, exclusion_reason="가이드상 제외")
+    f = FPFunction(
+        "F9", "로그아웃", FT.EQ, ReviewStatus.APPROVED,
+        excluded=True, exclusion_reason="가이드상 제외",
+    )
     result = calculate([f], Method.SIMPLE)
     assert result.total_fp == 0
     assert result.excluded_function_ids == ("F9",)

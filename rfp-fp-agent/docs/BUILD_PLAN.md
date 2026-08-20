@@ -2,7 +2,7 @@
 
 > 대상: 국내 SI 사업 초기 RFP 기반 FP 1차 자동산정 + 전문가 검토 내부도구
 > 작성 기준일: 2026-08-20 · 상태: 착수 판단용 v1.0
-> 부속 산출물: `fp_engine/`(동작하는 Rule Engine + 45개 테스트), `schemas/llm_extraction.schema.json`, `docs/KR_FP_RULES.md`
+> 부속 산출물: `fp_engine/`, `rfp_pipeline/`(PDF/PPTX/XLSX/DOCX 파싱·Evidence 검증·SQLite Ledger), `schemas/llm_extraction.schema.json`, `docs/KR_FP_RULES.md`
 
 ---
 
@@ -217,7 +217,7 @@ GitHub 를 실제 검색한 결과, **IFPUG/NESMA FP 관련 유지보수되는 �
 >
 > 단, **범위를 좁혀서.** FP 도메인 로직(Rule Engine)은 100% 자체 개발 — 이미 이 문서와 함께 완료되었고 공식 예제를 재현한다. 문서 파싱은 `docling`(MIT, 로컬 실행) 을 채택한다. Excel 생성은 `openpyxl` 직접 사용.
 >
-> **자체 개발 비용 추정:** Rule Engine 은 동작하는 상태다(약 800줄 + 68 테스트, 공식 Excel 대조만 남음). 남은 건 파이프라인과 UI 이며, 어차피 Fork 해도 전부 새로 짜야 하는 부분이다.
+> **현재 구현 상태:** Rule Engine, 경량 문서 파이프라인, Evidence Verifier, SQLite Ledger, 최소 Streamlit 리뷰 UI가 동작한다(총 107 테스트). 공식 Excel 대조, 이미지/OCR과 공식 양식 Export는 아직 남아 있다. 운영 단계의 고정밀 PDF 표·좌표 추출에는 Docling 어댑터를 추가 검증한다.
 
 ---
 
@@ -502,11 +502,11 @@ erDiagram
         uuid id PK
         uuid estimation_id FK
         float total_fp
+        float confirmed_fp
+        float provisional_fp
         float data_fp
         float transaction_fp
-        float high_conf_fp
-        float medium_conf_fp
-        float low_conf_fp
+        json unresolved_function_ids
         json counts_by_type
     }
     COST_RESULT {
@@ -648,8 +648,8 @@ tests/test_llm_schema.py   # LLM 스키마 조건부 무결성 강제 검증
 4. **`validator` 는 FP 를 변경하지 않는다.** 경고만 만들고 판단은 사람에게 넘긴다(원칙 7).
 5. **`rules_version` 을 산정 결과에 각인.** 가이드 개정 후 과거 산정을 재현할 수 있어야 한다.
 
-6. **확실성(certainty) 강제는 계산 지점에서 이뤄진다.** 스키마나 문서가 아니라 `calculator.py` 가 집행한다:
-   `MEASURED` → 확정 FP / `ESTIMATED` → **잠정 FP 로 분리** / `UNKNOWN` → 값 자체를 가질 수 없음(`types.Counted` 가 거부) / `NEEDS_REVIEW` → 값이 있어도 사용 거부.
+6. **확실성(certainty)과 기능 검토 상태 강제는 계산 지점에서 이뤄진다.** 스키마나 문서가 아니라 `calculator.py` 가 집행한다:
+   카운트는 `MEASURED` → 확정 가능 / `ESTIMATED` → **잠정 FP 로 분리** / `UNKNOWN` → 값 자체를 가질 수 없음(`types.Counted` 가 거부) / `NEEDS_REVIEW` → 값이 있어도 사용 거부한다. 기능 유형도 `APPROVED`/`MODIFIED`일 때만 확정 가능하며, `AI_PROPOSED`/`NEED_REVIEW`는 간이법에서도 잠정값이다.
    결과는 `total_fp` 하나가 아니라 `confirmed_fp` / `provisional_fp` / `unresolved_function_ids` 로 분리되어 나온다. **"근거 없음/검토 필요" 값이 확정 총계에 들어가는 경로는 없다.**
 7. **개정판(`edition`)은 기본값 없이 필수 인자.** 단가는 개정판마다 바뀌고(85FP 예제 기준 633만원 차이), 기본값을 두면 과거 단가로 조용히 계약금액이 산출된다.
 
@@ -657,7 +657,7 @@ tests/test_llm_schema.py   # LLM 스키마 조건부 무결성 강제 검증
 
 ```
 $ python3 -m pytest tests/ -q
-68 passed
+107 passed
 ```
 
 **통과한 것**
@@ -916,7 +916,7 @@ Total FP 오차는 **보조 지표로만** 본다. 이 세 개를 못 넘으면 
 ① Rule Engine 은 정답이 존재하므로 검증 가능하고, 이것이 완성되어야 **LLM 결과를 평가할 자(尺)** 가 생긴다 ② 규모가 작다(약 800줄, 이미 동작) ③ Rule Engine 만으로도 즉시 가치가 있다 — FP 전문가가 Excel 대신 쓸 수 있는 검증된 계산기 ④ LLM 을 먼저 만들면 "결과가 맞는지 알 수 없는 상태"에서 프롬프트를 튜닝하게 된다. **Rule Engine 은 이미 이 저장소에서 동작한다** — 남은 검증은 공식 Excel 대조뿐이다.
 
 ### Q7. 4~6주 MVP 의 구체적 Deliverable 은?
-1. `fp_engine/` — 국내 가이드 기준 Rule Engine + 68 테스트 (**동작** · 공식 Excel 대조 후 확정)
+1. `fp_engine/` + `rfp_pipeline/` — 국내 가이드 Rule Engine, 문서 파싱, 근거 검증, SQLite 원장, 최소 리뷰 UI + 총 107 테스트 (**동작** · 공식 Excel 대조 후 확정)
 2. RFP(PDF/DOCX) → 요구사항 목록(REQ-ID·원문·페이지) 자동 추출
 3. 요구사항 → FP 기능 후보(유형·근거·2순위·확인질문) 자동 생성, **JSON Schema + Evidence Verifier 통과분만**
 4. Streamlit 리뷰 UI — 원문 대조, 승인/수정/제외/분리/통합, 사유 기록
