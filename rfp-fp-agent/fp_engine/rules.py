@@ -1,26 +1,36 @@
 """국내 공식 기준 테이블 (SW사업 대가산정 가이드).
 
-출처: 한국소프트웨어산업협회(현 KOSA), 「SW사업 대가산정 가이드」
-      Part III. SW사업 구현단계 - 2. 소프트웨어 개발비, 표 3-8 ~ 표 3-25.
-      본 파일의 수치는 2020년 개정판 PDF 원문에서 추출·검증하였다.
-      https://www.sw.or.kr/site/sw/ex/board/List.do?cbIdx=276
+출처: 한국인공지능·소프트웨어산업협회(KOSA), 「SW사업 대가산정 가이드」
+      Part III. SW사업 구현단계 - 2. 소프트웨어 개발비, 표 3-8 ~ 3-25.
+
+대조 이력:
+  - 2020년 개정판 PDF 원문에서 최초 추출
+  - **2025년 개정판(KOSA 공식 배포본) 원문과 전량 대조 완료 (2026-08-20)**
+    · 복잡도 매트릭스(표 3-9/3-10/3-14/3-15/3-16): 동일
+    · 정통법 가중치, 간이법 평균복잡도 가중치: 동일
+    · 규모 보정계수 공식, 애플리케이션 복잡도 보정계수 4종: 동일
+    · **기능점수당 단가: 553,114원 → 605,784원 (변경)**
+    · **단계별 발주 구분(설계사업/구축사업) 신설 (변경)**
 
 주의(중요):
   - 이 파일은 '기준의 유일한 원천(single source of truth)'이다.
-    다른 모듈은 여기서만 숫자를 가져온다. 하드코딩 금지.
-  - GUIDE_EDITION 과 FP_UNIT_PRICE 는 매년 개정된다. 개정판을 적용할 때는
-    반드시 (1) 원문 표와 diff, (2) tests/golden_cases 재실행을 거친다.
+  - 개정판별 차이는 RULE_PACKS 로 분리한다. 호출자는 반드시 edition 을 명시해야
+    하며, 기본값은 제공하지 않는다 — 과거 단가로 조용히 계산되는 사고를 막는다.
   - 국내 가이드는 IFPUG CPM 의 복잡도 매트릭스/가중치를 그대로 채택하되,
     VAF(GSC 14개)는 사용하지 않는다. 대신 5개 보정계수를 개발원가에 곱한다.
+  - 아직 **공식 Excel 산정 템플릿과는 대조하지 않았다.** 반올림 규칙은 두 개정판의
+    적용사례로부터 역산한 것이다(ROUNDING_NOTE 참조).
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from .types import Complexity, FunctionType
 
-GUIDE_EDITION = "2020-revision (표 3-8 ~ 3-25)"
+SUPPORTED_EDITIONS = ("2020", "2025")
+LATEST_EDITION = "2025"
 
 # ---------------------------------------------------------------------------
 # 1. 정통법 복잡도 매트릭스
@@ -117,24 +127,61 @@ AVERAGE_WEIGHTS: dict[FunctionType, float] = {
 }
 
 # ---------------------------------------------------------------------------
-# 3. 단가 / 단계별 가중치 (표 3-21, 3-22)
+# 3. 개정판별 규칙 팩 (표 3-21 단가, 표 3-22 단계별 가중치)
+#    매트릭스·가중치·보정계수는 2020/2025 가 동일하므로 공유한다(대조 완료).
+#    개정판 간 차이가 나는 항목만 여기서 분기한다.
 # ---------------------------------------------------------------------------
 
-# 2020년 개정판 기준. 2024년 개정에서 9.5% 인상되어 605,784원으로 공표되었다.
-# 실제 사업 적용 시 '가장 최근에 공표된 단가'를 쓴다 (가이드 3단계 명시).
-FP_UNIT_PRICE_BY_YEAR: dict[int, int] = {
-    2020: 553_114,
-    2024: 605_784,  # 출처: KOSA 공표(2024.05), 언론보도 기준 — 원문 대조 필요
-}
-DEFAULT_PRICE_YEAR = 2020
 
-# 표 3-22 소프트웨어 개발 단계별 기능점수 가중치 (분할발주 시)
-PHASE_WEIGHTS: dict[str, float] = {
-    "분석": 0.19,
-    "설계": 0.24,
-    "구현": 0.32,
-    "시험": 0.25,
+@dataclass(frozen=True)
+class RulePack:
+    """특정 개정판의 금액 관련 기준."""
+
+    edition: str
+    fp_unit_price: int
+    phase_weights: dict[str, float]
+    split_order_weights: dict[str, float]  # 단계별 발주 구분 (2025 신설)
+    verified_against: str
+    example_total_fp: int
+    example_software_dev_cost: int  # 적용사례 공표 금액 (골든 테스트용)
+
+
+RULE_PACKS: dict[str, RulePack] = {
+    "2020": RulePack(
+        edition="2020",
+        fp_unit_price=553_114,
+        phase_weights={"분석": 0.19, "설계": 0.24, "구현": 0.32, "시험": 0.25},
+        split_order_weights={},  # 2020년판에는 없음
+        verified_against="2020년 개정판 PDF 원문 (표 3-21, 3-22, 2.1.6 적용사례)",
+        example_total_fp=85,
+        example_software_dev_cost=68_467_488,
+    ),
+    "2025": RulePack(
+        edition="2025",
+        fp_unit_price=605_784,
+        phase_weights={"분석": 0.19, "설계": 0.24, "구현": 0.32, "시험": 0.25},
+        split_order_weights={"설계사업": 0.281, "구축사업": 0.719},
+        verified_against="2025년 개정판 KOSA 배포본 PDF 원문 (표 3-21, 3-22, 2.1.6 적용사례)",
+        example_total_fp=85,
+        example_software_dev_cost=74_796_821,
+    ),
 }
+
+
+def get_rule_pack(edition: str) -> RulePack:
+    if edition not in RULE_PACKS:
+        raise ValueError(
+            f"알 수 없는 개정판 '{edition}'. 지원: {sorted(RULE_PACKS)}. "
+            "가이드는 '가장 최근에 공표된 단가'를 적용하도록 규정한다."
+        )
+    return RULE_PACKS[edition]
+
+
+# 반올림 규칙 — 가이드 본문에 명시가 없어 적용사례에서 역산한 것.
+ROUNDING_NOTE = """보정계수를 하나씩 순차적으로 곱하며 매 단계 원 단위 반올림(ROUND_HALF_EVEN).
+2020년판 예제(53,173,990원)와 2025년판 예제(58,237,457원)를 동시에 만족하는 유일한 규칙이다.
+결합 곱 후 1회 반올림이나 절사(floor)로는 두 예제를 동시에 재현할 수 없다.
+※ 공식 Excel 산정 템플릿과는 아직 대조하지 않았다. 도입 전 반드시 대조할 것."""
 
 PROFIT_RATE_MAX = 0.25  # 국가계약법 시행규칙 제8조: 개발원가의 25% 초과 불가
 

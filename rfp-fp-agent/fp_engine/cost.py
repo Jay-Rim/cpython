@@ -1,28 +1,39 @@
 """보정계수 및 소프트웨어 개발비 산정 (가이드 3~6단계).
 
-반올림 규칙 주의:
-  가이드 본문에는 라운딩 규칙이 명시되어 있지 않다. 아래 규칙은 가이드
-  2.1.6 적용사례(85FP 예제)의 공표 금액과 자릿수까지 일치하도록 역산한
-  것이다(보정후 개발원가=내림, 이윤=반올림). 실제 발주기관이 쓰는 공식
-  Excel 과 1원 단위까지 맞춰야 하므로, Phase 0 에서 반드시 해당 기관의
-  Excel 산출내역서와 대조하여 이 규칙을 확정해야 한다.
+## 개정판 명시가 필수인 이유
+
+`calculate_cost` 는 `edition` 을 기본값 없이 요구한다. 단가는 개정판마다 바뀌며
+(2020: 553,114원 → 2025: 605,784원), 85FP 예제 기준 약 633만원 차이가 난다.
+기본값을 두면 호출자가 무심코 과거 단가로 계약금액을 산출하게 되므로 두지 않는다.
+
+## 반올림 규칙 (역산 결과, 공식 Excel 미대조)
+
+보정계수를 순차적으로 곱하며 **매 단계 원 단위 반올림(ROUND_HALF_EVEN)** 한다.
+이 규칙만이 2020년판·2025년판 적용사례를 동시에 재현한다.
+`rules.ROUNDING_NOTE` 및 `tests/test_fp_engine.py` 참조.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Mapping, Optional
 
 from .rules import (
     APP_COMPLEXITY_FACTORS,
-    DEFAULT_PRICE_YEAR,
-    FP_UNIT_PRICE_BY_YEAR,
-    PHASE_WEIGHTS,
     PROFIT_RATE_MAX,
     SIZE_ADJ_COEFF,
+    RulePack,
+    get_rule_pack,
 )
+
+APP_FACTOR_ORDER = ("연계복잡성", "성능요구수준", "운영환경호환성", "보안성수준")
+
+
+def _won(value: Decimal) -> Decimal:
+    """원 단위 반올림 (ROUND_HALF_EVEN)."""
+    return value.quantize(Decimal("1"), rounding=ROUND_HALF_EVEN)
 
 
 def size_adjustment_factor(total_fp: float) -> tuple[float, str]:
@@ -52,6 +63,7 @@ def app_complexity_factor(name: str, level: int) -> tuple[float, str]:
 
 @dataclass(frozen=True)
 class CostResult:
+    edition: str
     total_fp: float
     unit_price: int
     base_dev_cost: int          # 보정전 개발원가
@@ -66,8 +78,8 @@ class CostResult:
 def calculate_cost(
     total_fp: float,
     *,
+    edition: str,
     complexity_levels: Mapping[str, int],
-    price_year: int = DEFAULT_PRICE_YEAR,
     profit_rate: float = PROFIT_RATE_MAX,
     direct_expense: int = 0,
     phases: Optional[list[str]] = None,
@@ -75,25 +87,40 @@ def calculate_cost(
 ) -> CostResult:
     """총 기능점수 → 소프트웨어 개발비.
 
+    edition: 적용할 가이드 개정판("2020"/"2025"). **기본값 없음 — 명시 필수.**
     complexity_levels: {"연계복잡성": 2, "성능요구수준": 3, ...} 1~5 수준.
-    phases: 분할발주 시 수행 단계 목록(예: ["분석","설계"]). None 이면 전체.
+    phases: 분할발주 시 수행 단계(예: ["분석","설계"] 또는 ["설계사업"]).
     """
+    pack: RulePack = get_rule_pack(edition)
+
     if not 0 <= profit_rate <= PROFIT_RATE_MAX:
-        raise ValueError(f"이윤율은 0~{PROFIT_RATE_MAX} 범위여야 한다 (국가계약법 시행규칙 제8조)")
+        raise ValueError(
+            f"이윤율은 0~{PROFIT_RATE_MAX} 범위여야 한다 (국가계약법 시행규칙 제8조)"
+        )
+    missing = [n for n in APP_FACTOR_ORDER if n not in complexity_levels]
+    if missing:
+        raise ValueError(f"보정계수 수준이 지정되지 않았다: {missing}")
 
-    unit_price = FP_UNIT_PRICE_BY_YEAR[price_year]
-    derivations = [f"기능점수당 단가({price_year}) = {unit_price:,}원 (표 3-21)"]
+    derivations = [
+        f"적용 개정판: {pack.edition} ({pack.verified_against})",
+        f"기능점수당 단가 = {pack.fp_unit_price:,}원 (표 3-21)",
+    ]
 
-    phase_weight = 1.0
+    phase_weight = Decimal("1")
     if phases:
-        missing = [p for p in phases if p not in PHASE_WEIGHTS]
-        if missing:
-            raise ValueError(f"알 수 없는 단계: {missing}")
-        phase_weight = sum(PHASE_WEIGHTS[p] for p in phases)
-        derivations.append(f"단계별 가중치 합({'+'.join(phases)}) = {phase_weight:.2f} (표 3-22)")
+        table = {**pack.phase_weights, **pack.split_order_weights}
+        unknown = [p for p in phases if p not in table]
+        if unknown:
+            raise ValueError(f"{pack.edition}년판에 없는 단계: {unknown}. 사용 가능: {sorted(table)}")
+        phase_weight = sum((Decimal(str(table[p])) for p in phases), Decimal("0"))
+        derivations.append(
+            f"단계별 가중치 합({'+'.join(phases)}) = {phase_weight} (표 3-22)"
+        )
 
-    base = total_fp * unit_price * phase_weight
-    derivations.append(f"보정전 개발원가 = {total_fp:g} × {unit_price:,} × {phase_weight:g}")
+    base = _won(Decimal(str(total_fp)) * pack.fp_unit_price * phase_weight)
+    derivations.append(
+        f"보정전 개발원가 = {total_fp:g} × {pack.fp_unit_price:,} × {phase_weight} = {int(base):,}"
+    )
 
     factors: dict[str, float] = {}
     if size_factor_override is not None:
@@ -104,35 +131,36 @@ def calculate_cost(
         factors["규모"] = sf
         derivations.append(why)
 
-    for name in ("연계복잡성", "성능요구수준", "운영환경호환성", "보안성수준"):
+    for name in APP_FACTOR_ORDER:
         value, why = app_complexity_factor(name, complexity_levels[name])
         factors[name] = value
         derivations.append(why)
 
+    # 순차 곱 + 매 단계 원 단위 반올림 (rules.ROUNDING_NOTE 참조)
     adjusted = base
     for value in factors.values():
-        adjusted *= value
+        adjusted = _won(adjusted * Decimal(str(value)))
 
-    base_i = int(base)                      # 내림 (예제 대조 결과)
-    adjusted_i = int(adjusted)              # 내림 (예제 대조 결과)
-    profit_i = int(
-        Decimal(adjusted_i * profit_rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    )                                        # 반올림 (예제 대조 결과)
-    total = adjusted_i + profit_i + direct_expense
+    profit = _won(adjusted * Decimal(str(profit_rate)))
+    total = int(adjusted) + int(profit) + direct_expense
 
     derivations.append(
         "보정후 개발원가 = 보정전 개발원가 × "
         + " × ".join(f"{k}({v})" for k, v in factors.items())
+        + f" = {int(adjusted):,} (각 단계 원 단위 반올림)"
     )
-    derivations.append(f"소프트웨어 개발비 = {adjusted_i:,} + {profit_i:,} + {direct_expense:,}")
+    derivations.append(
+        f"소프트웨어 개발비 = {int(adjusted):,} + 이윤 {int(profit):,} + 직접경비 {direct_expense:,}"
+    )
 
     return CostResult(
+        edition=pack.edition,
         total_fp=total_fp,
-        unit_price=unit_price,
-        base_dev_cost=base_i,
+        unit_price=pack.fp_unit_price,
+        base_dev_cost=int(base),
         factors=factors,
-        adjusted_dev_cost=adjusted_i,
-        profit=profit_i,
+        adjusted_dev_cost=int(adjusted),
+        profit=int(profit),
         direct_expense=direct_expense,
         software_dev_cost=total,
         derivations=tuple(derivations),

@@ -9,7 +9,11 @@ from .types import Complexity, FunctionType
 
 
 class InsufficientData(Exception):
-    """정통법 복잡도 판정에 필요한 카운트가 없다."""
+    """정통법 복잡도 판정에 필요한 카운트가 없거나 사용할 수 없다."""
+
+    @property
+    def reason(self) -> str:
+        return str(self)
 
 
 def determine_complexity(

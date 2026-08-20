@@ -11,7 +11,7 @@
 | [`docs/KR_FP_RULES.md`](docs/KR_FP_RULES.md) | 「SW사업 대가산정 가이드」 원문 표 발췌 (구현 대조용) |
 | [`fp_engine/`](fp_engine/) | **결정적 FP Rule Engine** — 복잡도 매트릭스, 간이법/정통법, 보정계수, 개발비, 정합성 lint |
 | [`schemas/`](schemas/) | LLM Structured Output JSON Schema |
-| [`tests/`](tests/) | 45개 테스트. 공식 가이드 예제를 1원 단위로 재현 |
+| [`tests/`](tests/) | 68개 테스트. 공식 가이드 예제를 **2개 개정판 모두** 1원 단위로 재현 |
 
 ## 핵심 설계 원칙
 
@@ -23,16 +23,24 @@
 ## 검증
 
 ```bash
-python3 -m pytest tests/ -q     # 45 passed
+python3 -m pytest tests/ -q     # 68 passed
 ```
 
-공식 가이드 2.1.6 적용사례(SCM 예제) 재현:
-85 FP → 보정전 47,014,690원 → 보정후 53,173,990원 → **소프트웨어 개발비 68,467,488원** (공표값과 일치)
+공식 가이드 2.1.6 적용사례(SCM 예제, 85 FP)를 **두 개정판 모두** 재현한다:
+
+| 개정판 | 단가 | 보정후 개발원가 | 소프트웨어 개발비 |
+|---|---|---|---|
+| 2020년판 | 553,114원 | 53,173,990원 | **68,467,488원** |
+| 2025년판 | 605,784원 | 58,237,457원 | **74,796,821원** |
+
+두 사례를 동시에 만족하는 반올림 규칙은 하나뿐이다: **보정계수를 순차적으로 곱하며 매 단계 원 단위 반올림(ROUND_HALF_EVEN).**
 
 ## 빠른 사용
 
 ```python
-from fp_engine import FPFunction, FunctionType, Method, calculate, calculate_cost, validate
+from fp_engine import (
+    FPFunction, FunctionType, Method, calculate, calculate_cost, validate,
+)
 
 funcs = [
     FPFunction("F1", "고객정보", FunctionType.ILF),
@@ -41,18 +49,37 @@ funcs = [
 ]
 result = calculate(funcs, Method.SIMPLE)      # 간이법 (RFP 단계 권장)
 print(result.total_fp)                        # 7.5 + 4.0 + 3.9 = 15.4
+print(result.fp_range)                        # (확정 FP, 확정+잠정 FP)
 
 for finding in validate(funcs):               # 정합성 경고
     print(finding)
 
 cost = calculate_cost(
     result.total_fp,
+    edition="2025",                           # 기본값 없음 — 명시 필수
     complexity_levels={"연계복잡성": 3, "성능요구수준": 3, "운영환경호환성": 2, "보안성수준": 2},
 )
 print(cost.software_dev_cost, cost.derivations)
 ```
 
-## 주의
+### 미확정 값은 확정 FP 에 섞이지 않는다
 
-- `fp_engine/rules.py` 의 수치는 **2020년 개정판** 원문 기준이다. 사내 도입 전 **최신 개정판(2025년) 대조가 필수**다.
-- 반올림 규칙은 가이드에 명시가 없어 공식 예제에서 역산했다. 발주기관 Excel 과 대조해 확정해야 한다.
+```python
+from fp_engine import Certainty, Counted
+
+Counted(20, Certainty.UNKNOWN, "지어낸 값")   # ValueError — 판단 불가는 값을 가질 수 없다
+
+# 추정 카운트는 계산은 되지만 잠정 FP 로 분리된다
+result.confirmed_fp     # 근거(MEASURED) 있는 값만
+result.provisional_fp   # 추정(ESTIMATED)/간이법 대체분
+result.unresolved_function_ids  # 정보 부족으로 아예 산정 못한 기능
+```
+
+## 상태 및 주의
+
+이 엔진은 **prototype (공식 Excel 검증 대기)** 이다. "완료"가 아니다.
+
+- ✅ 2020년판·2025년판 가이드 **원문 대조 완료** (매트릭스·가중치·보정계수 동일, 단가와 단계별 발주 구분만 변경)
+- ❌ **발주기관 공식 Excel 산정 템플릿과는 미대조.** 반올림 규칙은 적용사례 2건에서 역산한 것이며, Excel 의 셀 단위 반올림과 다를 수 있다
+- ❌ 사내 과거 사업 확정 산정서와 미대조 (Phase 0 골든셋)
+- 개정판(`edition`)은 기본값 없이 필수 인자다. 단가는 매년 바뀌며 85FP 예제에서만 633만원 차이가 난다

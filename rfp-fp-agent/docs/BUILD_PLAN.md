@@ -10,13 +10,30 @@
 
 | 구분 | 내용 | 검증 방법 |
 |---|---|---|
-| **1차(공식)** | KOSA 「SW사업 대가산정 가이드」 PDF 원문 표 3-8 ~ 3-25 | PDF 직접 다운로드 후 텍스트 추출, 수치 그대로 `fp_engine/rules.py` 에 이식 |
-| **1차(공식)** | 가이드 2.1.6 적용사례(SCM 예제, 85FP → 68,467,488원) | Rule Engine 으로 재현, 1원 단위 일치 확인 (`tests/test_fp_engine.py`) |
+| **1차(공식)** | KOSA 「SW사업 대가산정 가이드」 **2025년 개정판** PDF 원문 표 3-8 ~ 3-25 | KOSA 게시판에서 직접 다운로드 후 텍스트 추출, 2020년판과 전량 diff |
+| **1차(공식)** | 가이드 2.1.6 적용사례 (2020년판 85FP → 68,467,488원 / **2025년판 85FP → 74,796,821원**) | Rule Engine 이 **두 개정판 모두** 1원 단위로 재현 (`tests/test_fp_engine.py`) |
+| **1차(공식)** | 기능점수당 단가 605,784원 | **2025년판 표 3-21 원문 확인** (기존 언론보도 2차자료를 대체) |
 | **1차(GitHub)** | `872601188/nesma-fp-api` 실제 소스 | `analyzer.py` / `calculator.py` / `excel_generator.py` / README / 커밋로그 직접 확인 |
-| **2차** | 2024년 단가 인상(553,114 → 605,784원) | 언론보도 기준. **원문 대조 미완** — Phase 0 필수 확인 항목 |
+| **1차(GitHub API)** | 위 저장소의 라이선스 상태 | GitHub API `license: null`, `LICENSE`/`LICENSE.md`/`LICENSE.txt` 모두 404 |
 | **2차** | NESMA Indicative 35/15 공식 | 공식 원문 미확인. 본 문서에서는 결론 근거로 사용하지 않음 |
+| **미검증** | **공식 Excel 산정 템플릿과의 대조** | **미완.** 반올림 규칙은 두 개정판 적용사례에서 역산한 것 — Phase 0 필수 항목 |
 
-주의: 사내 도입 시 **가장 최근 개정판(2025년판) PDF 를 반드시 재대조**해야 한다. 본 계획서의 수치는 2020년 개정판 원문 기준이며, 매트릭스·가중치·보정계수 구조는 개정 이력상 안정적이나 **단가와 일부 보정계수 문구는 매년 바뀐다.**
+### 2025년 개정판 대조 결과 (2020년판 대비)
+
+| 항목 | 변경 여부 |
+|---|---|
+| 복잡도 매트릭스 (표 3-9/3-10/3-14/3-15/3-16) | 동일 |
+| 정통법 가중치 (7/10/15, 5/7/10, 3/4/6, 4/5/7, 3/4/6) | 동일 |
+| 간이법 평균복잡도 가중치 (7.5/5.4/4.0/5.2/3.9) | 동일 |
+| 규모 보정계수 공식 및 상·하한 | 동일 |
+| 애플리케이션 복잡도 보정계수 4종 × 5수준 | 동일 |
+| 이윤 25% 상한 | 동일 |
+| **기능점수당 단가** | **553,114원 → 605,784원 (변경)** |
+| **단계별 발주 구분** | **설계사업 28.1% / 구축사업 71.9% 신설 (변경)** |
+
+→ 개정판별 차이는 `fp_engine/rules.py` 의 `RULE_PACKS` 로 분리했고, **`edition` 은 기본값 없이 필수 인자**다. 과거 단가로 조용히 계산되는 사고를 구조적으로 막는다.
+
+주의: 매트릭스·가중치 구조는 개정 이력상 안정적이나 **단가는 매년 바뀐다.** 연 1회 개정 대조를 운영 태스크로 등록한다.
 
 ---
 
@@ -42,7 +59,7 @@
 | 요구사항 → 기능 후보 분해 | **60~75% (Recall 기준)** | 사람도 편차가 큰 영역. AI 는 "누락은 적고 과다는 많은" 방향으로 튜닝 가능 |
 | EI/EO/EQ/ILF/EIF 판정 | **75~85%** | 가이드가 용어별 판정 권고표를 제공 → 규칙 + LLM 조합으로 실용 정확도 확보 |
 | DET/RET/FTR 식별 | **RFP 단계 20~40% / 설계 단계 70%+** | **RFP 에는 원래 이 정보가 없다.** 이건 AI 성능 문제가 아니라 입력 정보 부재 문제 |
-| 복잡도 · FP 계산 · 개발비 | **100% (Rule Engine)** | 이미 구현 완료. 공식 예제와 1원 단위 일치 |
+| 복잡도 · FP 계산 · 개발비 | **100% (Rule Engine)** | 구현됨. 공식 적용사례 2개 개정판과 1원 단위 일치 (공식 Excel 대조는 미완) |
 | 산정근거 문서화 | **90%+** | 구조화만 되면 자동 |
 | 발주자-수주자 조정 | **0%** | 협상이지 계산이 아니다 |
 
@@ -105,7 +122,7 @@
 | 가중치 | ILF 7.5 / EIF 5.4 / EI 4.0 / EO 5.2 / EQ 3.9 | 복잡도별 정수 가중치(표 3-9~3-16, 3-20) |
 | **본 시스템 적용** | **Level 1 Early FP 의 기본 산식** | **Level 2 Detailed FP** |
 
-### 3.3 구현해야 할 계산 체인 (전부 구현 완료)
+### 3.3 구현해야 할 계산 체인 (구현됨 · 공식 Excel 대조 대기)
 
 ```
 ① 기능 식별  → ② 복잡도/가중치 → ③ 총 기능점수
@@ -135,14 +152,21 @@
 - **공통모듈**: 원칙적으로 1회만 산정
 - **투입공수 방식 예외 사업 5종**(콘텐츠/R&D/내부복잡도 과대/튜닝·테스트/5천만원 미만) → **시스템이 초기에 "이 사업은 FP 방식 대상이 아닐 수 있음"을 경고해야 한다**
 
-### 3.5 반올림 규칙 — 실무 함정
+### 3.5 반올림 규칙 — 실무 함정 (개정판 2종 대조로 확정)
 
-가이드 본문에는 라운딩 규칙이 **없다.** 공식 예제(85FP)를 역산한 결과:
+가이드 본문에는 라운딩 규칙이 **없다.** 두 개정판 적용사례를 동시에 만족하는 규칙을 역산한 결과:
 
-- 보정후 개발원가 47,014,690 × 1.28 × 0.94 × 1.00 × 0.94 × 1.00 = 53,173,990.5… → **53,173,990 (내림)**
-- 이윤 53,173,990 × 25% = 13,293,497.5 → **13,293,498 (반올림)**
+> **보정계수를 하나씩 순차적으로 곱하며, 매 단계 원 단위 반올림(ROUND_HALF_EVEN).**
 
-같은 문서 안에서 내림과 반올림이 섞여 있다. 이 규칙을 코드에 반영해 예제와 1원 단위로 일치시켰지만, **발주기관이 실제로 쓰는 Excel 과 다를 수 있다.** Phase 0 에서 기관 Excel 과 대조 필수. 이런 1원 차이가 계약 실무에서 재작업을 유발한다.
+| 가설 | 2020년판 (53,173,990 기대) | 2025년판 (58,237,457 기대) |
+|---|---|---|
+| 결합 곱 후 1회 절사 | 53,173,990 ✓ | 58,237,456 ✕ |
+| 결합 곱 후 1회 반올림 | 53,173,991 ✕ | 58,237,457 ✓ |
+| **순차 곱 + 매 단계 HALF_EVEN** | **53,173,990 ✓** | **58,237,457 ✓** |
+
+**이것이 개정판 1종만으로 검증했을 때의 위험을 보여준다.** 2020년판만 봤을 때는 "절사"가 정답으로 보였고, 실제 초기 구현이 그렇게 되어 있었다. 2025년판을 대조하자마자 그 구현은 틀린 것으로 판명됐다.
+
+**여전히 미검증:** 발주기관이 실제로 쓰는 **공식 Excel 산정 템플릿과는 대조하지 않았다.** 적용사례 2건에 적합(fit)한 규칙일 뿐, Excel 의 내부 셀 단위 반올림과 다를 수 있다. Phase 0 필수 항목이며, 그 전까지 이 엔진은 **prototype(검증 대기)** 이다.
 
 ---
 
@@ -159,13 +183,15 @@
 | 1 | 재사용 가능한가 | **거의 불가.** `analyzer.py` 는 **중국어 키워드 사전 기반 규칙**이다(`创建/添加/提交/导入`→EI, `查询/搜索/筛选`→EQ, `数据库/数据表`→ILF). 한국어 RFP 에 그대로 못 쓴다 |
 | 2 | 코드 품질 | 낮음. 커밋 5개, 프로덕션 코드와 debug/test 스크립트가 뒤섞임, 테스트 커버리지 사실상 없음 |
 | 3 | 유지보수 가능성 | 없음. 5개월간 커밋 없음, 기여자 1명, 이슈 1건 미해결. 사실상 개인 실험 저장소 |
-| 4 | License | **문제 없음 (MIT).** 유일하게 깨끗한 항목 |
+| 4 | License | ⚠️ **표방 MIT, 라이선스 본문 부재.** README 는 "MIT, see LICENSE" 라고 쓰지만 `LICENSE`/`LICENSE.md`/`LICENSE.txt` 가 모두 404 이고 GitHub API 도 `license: null` 을 반환한다. **법무 확인 전 코드 재사용 금지** |
 | 5 | NESMA vs 국내 FP 차이 | **치명적.** ① VAF(0.65 + GSC/100) 적용 → 국내 미사용 ② **DET/FTR/RET 계산이 아예 없음.** 복잡도를 `high_indicators >= 2 → High` 같은 키워드 개수 휴리스틱으로 결정 → **IFPUG/국내 기준 위반** ③ 간이법 평균복잡도(7.5/5.4/4.0/5.2/3.9) 개념 없음 |
 | 6 | Analyzer 재사용 + Calculator 교체 가능? | **불가.** Analyzer 의 출력이 DET/FTR 을 담지 않으므로, 국내 Calculator 를 붙일 인터페이스 자체가 없다. 즉 교체가 아니라 재작성 |
 | 7 | Excel Generator | **약 180줄 openpyxl 코드.** Summary/Components/Complexity Distribution 3~4 시트. **국내 "SW개발비 산출내역서" 양식과 무관.** 참고 가치: openpyxl 사용 패턴 정도(30분이면 직접 작성) |
 | 8 | 보안 | 심각한 취약점은 미발견. 다만 **감사되지 않은 개인 저장소를 사내 RFP(대외비 포함) 처리 경로에 넣는 것 자체가 리스크**. 파일 업로드 경로 검증·인증 체계 부재 |
 | 9 | LLM 의존인가 Rule 기반인가 | **순수 Rule(키워드 매칭) + 선택적 spaCy.** LLM 없음. → 당신이 원하는 "LLM 해석 + Rule 계산" 구조와 정반대로, **해석부가 규칙이고 계산부가 휴리스틱**이다. 완전히 뒤집혀 있다 |
 | 10 | Fork vs 신규 | **신규 개발이 압도적으로 빠르다.** Fork 시 얻는 것: 프로젝트 스캐폴딩(수 시간). 버려야 하는 것: analyzer 전체, calculator 의 복잡도 로직, VAF. 남는 순이익 ≈ 0, 대신 잘못된 FP 로직을 물려받을 위험 |
+
+**라이선스 주의:** 채택하지 않으므로 실무 영향은 없으나, 기록을 위해 명확히 한다 — 이 저장소는 **MIT 를 표방할 뿐 라이선스 본문이 없다.** 저작권법상 명시적 허락이 없는 코드는 기본적으로 all rights reserved 로 취급된다. 어떤 형태로든 코드를 참고·차용하려면 법무 확인이 선행되어야 한다.
 
 **핵심 근거 1개만 남긴다면:** 이 저장소는 **DET/FTR/RET 를 세지 않는다.** DET/FTR/RET 없이는 정통법 FP 가 성립하지 않는다. 당신 기획서의 ③④번 요구사항을 이 코드는 구조적으로 만족시킬 수 없다.
 
@@ -177,7 +203,7 @@ GitHub 를 실제 검색한 결과, **IFPUG/NESMA FP 관련 유지보수되는 �
 
 | Repository | 방식 | Language | 최근 관리 | License | 재사용 가능 부분 | 국내 FP 적합성 | 추천 |
 |---|---|---|---|---|---|---|---|
-| `872601188/nesma-fp-api` | 중국어 키워드 규칙 + VAF | Python/React | 2026-03 (커밋 5개) | MIT | 사실상 없음 (openpyxl 패턴 정도) | ✕ (VAF 사용, DET/FTR 없음) | **미채택** |
+| `872601188/nesma-fp-api` | 중국어 키워드 규칙 + VAF | Python/React | 2026-03 (커밋 5개) | ⚠️ MIT 표방·본문 부재 | 사실상 없음 (openpyxl 패턴 정도) | ✕ (VAF 사용, DET/FTR 없음) | **미채택** |
 | `leftpudding/Function-Point-Spreadsheet` | IFPUG 수동 스프레드시트 | Excel/ODS | 2015 | 확인 필요 | **IFPUG 매트릭스 레이아웃 검증용** | △ (VAF 포함, 국내 보정계수 없음) | 참고만 |
 | `deliaqi/myIFPUG` | 실험용 FPA 코드 | Java | 2020 | 확인 필요 | 없음 (언어 불일치, 실험 수준) | ✕ | 미채택 |
 | `adautomeira/fp-control` | AI 스킬(프롬프트) 형태 FPA | Markdown | 2026-06 (⭐0) | 확인 필요 | **FPA 프롬프트 설계 아이디어** | ✕ (국내 기준 없음) | 아이디어만 |
@@ -191,7 +217,7 @@ GitHub 를 실제 검색한 결과, **IFPUG/NESMA FP 관련 유지보수되는 �
 >
 > 단, **범위를 좁혀서.** FP 도메인 로직(Rule Engine)은 100% 자체 개발 — 이미 이 문서와 함께 완료되었고 공식 예제를 재현한다. 문서 파싱은 `docling`(MIT, 로컬 실행) 을 채택한다. Excel 생성은 `openpyxl` 직접 사용.
 >
-> **자체 개발 비용 추정:** Rule Engine 은 이미 끝났다(약 700줄 + 45 테스트). 남은 건 파이프라인과 UI 이며, 어차피 Fork 해도 전부 새로 짜야 하는 부분이다.
+> **자체 개발 비용 추정:** Rule Engine 은 동작하는 상태다(약 800줄 + 68 테스트, 공식 Excel 대조만 남음). 남은 건 파이프라인과 UI 이며, 어차피 Fork 해도 전부 새로 짜야 하는 부분이다.
 
 ---
 
@@ -280,7 +306,7 @@ flowchart TD
 | **Evidence Verifier** | 모든 `quote` 가 원문에 문자열로 존재하는지 검증, 실패 시 후보 거부/격리 | 추측 보정 | 자체(정규화 후 exact/fuzzy match) |
 | **Dedup Clusterer** | 명칭 정규화 → 유사 기능 클러스터 → 대표 선정 | 자동 삭제(리뷰 대기열로 보냄) | rapidfuzz + 임베딩(선택) |
 | **Rule Lint** | 용어 권고표·제외목록·ILF↔EI 정합성 위반 탐지 | FP 변경 | `fp_engine/validator.py` |
-| **FP Rule Engine** | 복잡도·가중치·FP·보정계수·개발비 | LLM 호출 | `fp_engine/` (구현 완료) |
+| **FP Rule Engine** | 복잡도·가중치·FP·보정계수·개발비, 확실성 강제 | LLM 호출 | `fp_engine/` (구현됨) |
 | **Review Workbench** | 승인/수정/제외/분리/통합 + 원문 대조 + 이력 | 자동 확정 | Streamlit(MVP) → React(확산기) |
 | **Ledger / Version Store** | 스냅샷·diff·변동사유 | — | SQLite → PostgreSQL |
 | **Exporter** | 산출내역서 Excel, 산정근거서, 확인요청 목록 | — | openpyxl |
@@ -348,8 +374,11 @@ erDiagram
     ESTIMATION ||--o{ ADJUSTMENT_FACTOR : uses
     ESTIMATION ||--o{ COST_RESULT : produces
     FP_FUNCTION ||--o{ EVIDENCE : "근거"
-    FP_FUNCTION ||--o{ COUNT_ITEM : "DET/RET/FTR"
+    FP_FUNCTION ||--o{ FP_COUNT : "DET/RET/FTR"
+    FP_COUNT ||--o{ COUNT_ITEM : "센 항목"
+    COUNT_ITEM }o--|| EVIDENCE : "도출 근거"
     FP_FUNCTION ||--o{ REVIEW_EVENT : "수정이력"
+    FUNCTION_LINEAGE ||--o{ FP_FUNCTION : "동일 기능 계보"
     FP_FUNCTION ||--o{ OPEN_QUESTION : "확인필요"
     ESTIMATION ||--o{ ESTIMATION_DIFF : "버전비교"
     LLM_RUN ||--o{ FP_FUNCTION : "생성출처"
@@ -401,18 +430,33 @@ erDiagram
     FP_FUNCTION {
         uuid id PK
         uuid estimation_id FK
-        string stable_key "버전간 동일기능 추적 키"
+        uuid lineage_id FK "버전간 동일기능 추적 - 유형과 무관"
         string name
-        string function_type "ILF/EIF/EI/EO/EQ"
-        int det
-        string det_certainty "MEASURED/ESTIMATED/UNKNOWN"
-        int ret
-        int ftr
+        string function_type "ILF/EIF/EI/EO/EQ - 변경되어도 lineage 는 유지"
         string complexity "엔진 계산결과 - 읽기전용"
         float fp "엔진 계산결과 - 읽기전용"
+        string confirmation "CONFIRMED/PROVISIONAL - 엔진 계산결과"
         float ai_confidence
         string status "AI_PROPOSED/APPROVED/MODIFIED/EXCLUDED/MERGED"
         uuid merged_into FK
+    }
+    FUNCTION_LINEAGE {
+        uuid id PK
+        uuid project_id FK
+        string display_name "최초 식별 시 명칭 - 표시용일 뿐 식별자가 아님"
+        uuid split_from FK "기능 분리 시 부모 lineage"
+        uuid merged_into FK "기능 통합 시 대상 lineage"
+        timestamp created_at
+    }
+    FP_COUNT {
+        uuid id PK
+        uuid fp_function_id FK
+        string count_type "DET/RET/FTR"
+        int value
+        string certainty "MEASURED/ESTIMATED/UNKNOWN/NEEDS_REVIEW"
+        text rationale
+        string review_status "PENDING/CONFIRMED/REJECTED"
+        string confirmed_by
     }
     EVIDENCE {
         uuid id PK
@@ -425,10 +469,9 @@ erDiagram
     }
     COUNT_ITEM {
         uuid id PK
-        uuid fp_function_id FK
-        string count_type "DET/RET/FTR"
-        string item_name "센 항목 그 자체"
-        string source "화면정의서 p12 / RFP p47 / 추정"
+        uuid fp_count_id FK
+        string item_name "센 항목 그 자체 (예: 계약번호)"
+        uuid evidence_id FK "문자열이 아닌 참조 - 문서/페이지/bbox/인용문에 연결"
     }
     REVIEW_EVENT {
         uuid id PK
@@ -481,8 +524,8 @@ erDiagram
         uuid id PK
         uuid from_estimation FK
         uuid to_estimation FK
-        string stable_key
-        string change_type "ADDED/REMOVED/TYPE_CHANGED/COMPLEXITY_CHANGED"
+        uuid lineage_id FK "유형이 바뀌어도 같은 계보로 추적된다"
+        string change_type "ADDED/REMOVED/TYPE_CHANGED/COMPLEXITY_CHANGED/SPLIT/MERGED"
         float fp_delta
         text reason
     }
@@ -506,11 +549,16 @@ erDiagram
     }
 ```
 
-**설계 의도 3가지:**
+**설계 의도 4가지:**
 
-1. `stable_key` — 기능명 정규화 + 유형 해시. 이게 있어야 RFP FP → 분석 FP → 설계 FP 를 **기능 단위로** 비교할 수 있다. 총계만 비교하면 "1,420 → 1,510" 이라는 사실만 알고 **왜 늘었는지** 모른다.
-2. `COUNT_ITEM` — "DET 14개는 어디서 나왔나"에 답하는 유일한 테이블. DET 숫자만 저장하면 이 질문에 영원히 답할 수 없다.
-3. `PROJECT_ACTUAL` — 10번 요구사항(장기 데이터 축적) 대응. 지금은 비어 있어도 스키마에 자리를 만들어둬야 나중에 소급 입력이 가능하다.
+1. **`FUNCTION_LINEAGE` (기능 계보) — 식별자에 유형을 넣지 않는다.**
+   초기 설계는 `stable_key = 기능명 정규화 + 유형 해시` 였는데, 이건 자기모순이다. EQ 로 잡았던 기능을 리뷰에서 EO 로 고치면 키가 바뀌고, 시스템은 이를 `TYPE_CHANGED` 가 아니라 **"기존 기능 삭제 + 신규 기능 추가"** 로 오인한다. 즉 가장 흔한 수정(EQ↔EO)이 계보를 끊는다.
+   → 기능의 정체성은 **최초 식별 시 부여된 영속 UUID(`lineage_id`)** 다. 유형·명칭·복잡도는 전부 그 계보 위에서 바뀌는 속성이며, 분리/통합은 `split_from`/`merged_into` 로 별도 모델링한다.
+2. **`FP_COUNT` — DET/RET/FTR 을 컬럼이 아니라 엔티티로.**
+   초기 설계는 `det_certainty` 컬럼 하나만 두어 RET/FTR 의 확실성을 표현할 수 없었다. 카운트를 엔티티로 분리하면 세 축 모두 `certainty` 와 `review_status` 를 독립적으로 갖는다. "FTR=2 는 측정값인가 추정값인가"에 답할 수 있어야 한다.
+3. **`COUNT_ITEM.evidence_id` — 출처를 문자열이 아니라 FK 로.**
+   `source: "화면정의서 p12"` 같은 문자열은 참조 무결성이 없다. 근거 문서가 개정됐을 때 **어느 카운트가 영향받는지 질의할 수 없다.** EVIDENCE 로 연결하면 문서·페이지·bbox·인용문까지 추적되고, 문서 버전 변경 시 영향 범위를 역질의할 수 있다.
+4. `PROJECT_ACTUAL` — 10번 요구사항(장기 데이터 축적) 대응. 지금은 비어 있어도 스키마에 자리를 만들어둬야 나중에 소급 입력이 가능하다.
 
 ---
 
@@ -577,7 +625,7 @@ erDiagram
 
 ---
 
-## 9. FP Rule Engine 설계 (구현 완료)
+## 9. FP Rule Engine 설계 (구현됨 · 공식 Excel 대조 대기)
 
 ```
 fp_engine/
@@ -588,7 +636,8 @@ fp_engine/
 ├── cost.py         # 규모보정계수, 애플리케이션 복잡도 보정계수, 개발비 6단계
 ├── validator.py    # 중복·오분류·이상치·정합성 lint (FP 를 바꾸지 않고 경고만)
 └── __init__.py
-tests/test_fp_engine.py   # 45 tests, 공식 예제 1원 단위 재현
+tests/test_fp_engine.py   # 공식 예제 2개 개정판 1원 단위 재현 + 확실성 강제
+tests/test_llm_schema.py   # LLM 스키마 조건부 무결성 강제 검증
 ```
 
 ### 설계 규칙
@@ -599,17 +648,31 @@ tests/test_fp_engine.py   # 45 tests, 공식 예제 1원 단위 재현
 4. **`validator` 는 FP 를 변경하지 않는다.** 경고만 만들고 판단은 사람에게 넘긴다(원칙 7).
 5. **`rules_version` 을 산정 결과에 각인.** 가이드 개정 후 과거 산정을 재현할 수 있어야 한다.
 
+6. **확실성(certainty) 강제는 계산 지점에서 이뤄진다.** 스키마나 문서가 아니라 `calculator.py` 가 집행한다:
+   `MEASURED` → 확정 FP / `ESTIMATED` → **잠정 FP 로 분리** / `UNKNOWN` → 값 자체를 가질 수 없음(`types.Counted` 가 거부) / `NEEDS_REVIEW` → 값이 있어도 사용 거부.
+   결과는 `total_fp` 하나가 아니라 `confirmed_fp` / `provisional_fp` / `unresolved_function_ids` 로 분리되어 나온다. **"근거 없음/검토 필요" 값이 확정 총계에 들어가는 경로는 없다.**
+7. **개정판(`edition`)은 기본값 없이 필수 인자.** 단가는 개정판마다 바뀌고(85FP 예제 기준 633만원 차이), 기본값을 두면 과거 단가로 조용히 계약금액이 산출된다.
+
 ### 검증 상태
 
 ```
 $ python3 -m pytest tests/ -q
-45 passed
+68 passed
 ```
 
-- 공식 SCM 예제: 18개 기능 → **85 FP** ✓, 보정전 47,014,690원 ✓, 보정후 53,173,990원 ✓, 이윤 13,293,498원 ✓, **개발비 68,467,488원 ✓**
+**통과한 것**
+- 공식 적용사례를 **두 개정판 모두** 1원 단위 재현: 2020년판 85FP → 68,467,488원 ✓ / 2025년판 85FP → 74,796,821원 ✓
 - 5개 유형 × 매트릭스 경계값 28 케이스 ✓
 - 규모 보정계수 공식이 500FP/3,000FP 경계에서 공표값에 수렴 ✓
 - 동일 입력 100회 반복 시 동일 결과 ✓ (원칙 2)
+- 확실성 강제: `UNKNOWN` + 값 조합 거부, `NEEDS_REVIEW` 값의 정통법 사용 거부, `ESTIMATED` 의 확정/잠정 분리 ✓
+- LLM 스키마 조건부 무결성: `UNKNOWN`→value null, `MEASURED`→items 필수, 근거 없는 후보 거부 ✓
+
+**아직 통과하지 못한 것 (도입 전 필수)**
+- ❌ **공식 Excel 산정 템플릿과의 대조.** 반올림 규칙은 적용사례 2건에 적합한 것일 뿐이다
+- ❌ 사내 과거 사업 확정 산정서와의 대조 (Phase 0 골든셋)
+
+→ 따라서 이 엔진의 현재 상태는 "완료"가 아니라 **prototype (공식 Excel 검증 대기)** 이다.
 
 ---
 
@@ -675,11 +738,12 @@ Pass B 기능분해 ████░░░░░░░░  92/214건  후보 337�
 ```
 Level 1 Early FP (간이법)
 ┌────────────────────────────────────────────┐
-│ 확정(승인)         1,182.4 FP   ▓▓▓▓▓▓▓░░  │
-│ 검토필요             237.6 FP   ▓▓░░░░░░░  │
-│ 제외                  48.0 FP              │
+│ 확정 FP (근거 있음) 1,182.4 FP  ▓▓▓▓▓▓▓░░  │
+│ 잠정 FP (추정 포함)   237.6 FP  ▓▓░░░░░░░  │
+│ 미산정 (정보 부족)     38건                │
+│ 제외                   48.0 FP             │
 │ ─────────────────────────────────────────  │
-│ 현재 산정 FP       1,420.0 FP              │
+│ FP 범위          1,182.4 ~ 1,420.0 FP      │
 │ 확인필요 기능          38건  → 확인요청서   │
 └────────────────────────────────────────────┘
 유형별  ILF 42 / EIF 8 / EI 156 / EO 61 / EQ 92
@@ -824,7 +888,8 @@ Total FP 오차는 **보조 지표로만** 본다. 이 세 개를 못 넘으면 
 | 13 | **정보보안 / RFP 외부 전송** | 대외비 유출, 제안 전략 노출 | ① 공고 RFP(공개)와 내부문서 분리 등급 ② **사내 LLM 환경 우선**, 외부 API 는 학습 미사용 계약 확인 ③ docling 로컬 실행 ④ 문서 원본은 사내 저장, 외부에는 청크 텍스트만 ⑤ 전송 로그 감사 |
 | 14 | **"AI 가 냈다"는 이유로 검토가 느슨해짐** (자동화 편향) | 가장 과소평가되는 리스크 | AI 결과는 항상 `AI_PROPOSED`, **무수정 일괄승인 시 사유 입력 강제**, 승인율이 비정상적으로 높으면 경고 |
 | 15 | **FP 방식 예외 사업에 적용** | 애초에 FP 로 산정하면 안 되는 사업 | 프로젝트 생성 단계에서 투입공수 예외 5종 체크리스트 노출(구현: `EFFORT_BASED_EXCEPTIONS`) |
-| 16 | **가이드 개정 미반영** | 단가·계수 오류 | `rules.py` 단일 원천 + `GUIDE_EDITION` 상수 + 연 1회 개정 대조 절차를 운영 태스크로 등록 |
+| 16 | **가이드 개정 미반영** | 단가·계수 오류 | `rules.py` 의 `RULE_PACKS` 로 개정판 분리 + **`edition` 필수 인자(기본값 없음)** + 연 1회 개정 대조를 운영 태스크로 등록 |
+| 17 | **미확정 카운트가 확정 FP 로 둔갑** | 근거 없는 숫자가 계약 baseline 이 됨 | `calculator.py` 가 계산 지점에서 확실성을 강제. 결과를 `confirmed_fp`/`provisional_fp`/`unresolved` 로 분리. `UNKNOWN` 은 값 자체를 가질 수 없음 |
 
 ---
 
@@ -838,20 +903,20 @@ Total FP 오차는 **보조 지표로만** 본다. 이 세 개를 못 넘으면 
 요구사항 추출·구조화(80~90%), 기능 후보 분해(초안 60~75% Recall), 유형 판정(75~85%)까지. **DET/FTR/RET 는 RFP 단계에서 자동화하지 마라** — 정보가 없다. 복잡도·FP·개발비는 AI 가 아니라 Rule Engine 이 100%. 발주자 협의는 0%.
 
 ### Q3. `nesma-fp-api` 를 Fork 하는 것이 좋은가?
-**아니다.** 커밋 5개·⭐2·5개월 방치·중국어 키워드 규칙·**DET/FTR/RET 미구현**·VAF 적용(국내 미사용). 재사용 가능 부분이 사실상 없고, 잘못된 FP 로직을 물려받을 위험이 이득보다 크다. License(MIT)만 유일하게 문제없다.
+**아니다.** 커밋 5개·⭐2·5개월 방치·중국어 키워드 규칙·**DET/FTR/RET 미구현**·VAF 적용(국내 미사용). 재사용 가능 부분이 사실상 없고, 잘못된 FP 로직을 물려받을 위험이 이득보다 크다. 라이선스도 깨끗하지 않다 — MIT 를 표방하나 **LICENSE 파일이 존재하지 않는다**(GitHub API `license: null`). 재사용하려면 법무 확인이 필요하다.
 
 ### Q4. 새로 개발해야 하는 핵심은?
-① **FP Rule Engine** (국내 가이드 이식 + 골든 테스트) — **이미 완료** ② **Evidence Verifier** (hallucination 차단의 핵심) ③ **리뷰 워크벤치 + 수정 이력 Ledger** ④ **국내 산출내역서 Excel Exporter** ⑤ 기능 입도 rubric 과 사내 few-shot. **이 5개가 제품의 해자다. 나머지는 부품 조립.**
+① **FP Rule Engine** (국내 가이드 이식 + 골든 테스트) — **동작하나 공식 Excel 대조 대기** ② **Evidence Verifier** (hallucination 차단의 핵심) ③ **리뷰 워크벤치 + 수정 이력 Ledger** ④ **국내 산출내역서 Excel Exporter** ⑤ 기능 입도 rubric 과 사내 few-shot. **이 5개가 제품의 해자다. 나머지는 부품 조립.**
 
 ### Q5. MVP 에서 반드시 제외할 것은?
 **정통법 완전 자동화**(입력 정보 부재), **FP 밴드 자동 산출**(실측 데이터 없이는 허구), **React SPA**, **버전 비교**, **HWP 직접 파싱**, **자동 재학습**, **권한/SSO**, **MM·생산성 대시보드**. 특히 앞의 두 개는 "있어 보이는데 근거가 없는" 기능이라 도구 신뢰를 무너뜨린다.
 
 ### Q6. LLM Agent 와 FP Rule Engine 중 무엇이 먼저인가?
 **Rule Engine 이 먼저다. 논쟁의 여지가 없다.**
-① Rule Engine 은 정답이 존재하므로 검증 가능하고, 이것이 완성되어야 **LLM 결과를 평가할 자(尺)** 가 생긴다 ② 규모가 작다(약 700줄, 이미 완료) ③ Rule Engine 만으로도 즉시 가치가 있다 — FP 전문가가 Excel 대신 쓸 수 있는 검증된 계산기 ④ LLM 을 먼저 만들면 "결과가 맞는지 알 수 없는 상태"에서 프롬프트를 튜닝하게 된다. **이미 Rule Engine 은 완성되어 이 저장소에 있다.**
+① Rule Engine 은 정답이 존재하므로 검증 가능하고, 이것이 완성되어야 **LLM 결과를 평가할 자(尺)** 가 생긴다 ② 규모가 작다(약 800줄, 이미 동작) ③ Rule Engine 만으로도 즉시 가치가 있다 — FP 전문가가 Excel 대신 쓸 수 있는 검증된 계산기 ④ LLM 을 먼저 만들면 "결과가 맞는지 알 수 없는 상태"에서 프롬프트를 튜닝하게 된다. **Rule Engine 은 이미 이 저장소에서 동작한다** — 남은 검증은 공식 Excel 대조뿐이다.
 
 ### Q7. 4~6주 MVP 의 구체적 Deliverable 은?
-1. `fp_engine/` — 국내 가이드 기준 Rule Engine + 45 테스트 (**완료**)
+1. `fp_engine/` — 국내 가이드 기준 Rule Engine + 68 테스트 (**동작** · 공식 Excel 대조 후 확정)
 2. RFP(PDF/DOCX) → 요구사항 목록(REQ-ID·원문·페이지) 자동 추출
 3. 요구사항 → FP 기능 후보(유형·근거·2순위·확인질문) 자동 생성, **JSON Schema + Evidence Verifier 통과분만**
 4. Streamlit 리뷰 UI — 원문 대조, 승인/수정/제외/분리/통합, 사유 기록
@@ -869,14 +934,14 @@ Total FP 오차는 **보조 지표로만** 본다. 이 세 개를 못 넘으면 
 
 ### Week 0 (착수 전, 0.5주) — 게이트
 - 과거 사업 3건의 RFP + 확정 FP 산정서 확보, 비식별 처리
-- **최신 개정판(2025) 가이드 PDF 확보 → `rules.py` 수치 대조, 단가 확정**
-- 발주기관 Excel 산출내역서로 **반올림 규칙 확정**
+- ~~최신 개정판(2025) 가이드 PDF 대조~~ → **완료** (매트릭스·가중치·보정계수 동일, 단가 605,784원, 단계별 발주 구분 신설)
+- 발주기관 **공식 Excel 산출내역서로 반올림 규칙 확정** ← 유일하게 남은 기준 검증 항목
 - 보안 검토: 외부 LLM API 사용 가부, 사내 LLM 환경 가용성
 - **FP 전문가 2명 독립 산정으로 사람 간 편차 기준선 측정**
 - ❌ 게이트 미통과 시 착수하지 않는다
 
 ### Week 1 — Rule Engine 확정 + 파이프라인 골격
-- `fp_engine` 최신 개정판 반영 및 재검증 (**베이스 완료 상태에서 시작**)
+- `fp_engine` 공식 Excel 산정 템플릿 대조 → 반올림 규칙 확정 (**동작하는 베이스에서 시작**)
 - 과거 산정서 3건을 Rule Engine 에 수기 입력 → **공식 산정서 FP 와 일치 확인** (엔진 신뢰 확보)
 - FastAPI 골격 + SQLite 스키마 + docling 파싱 PoC
 - 산출: **검증된 계산기 + 파싱 결과 샘플**
@@ -908,6 +973,7 @@ Total FP 오차는 **보조 지표로만** 본다. 이 세 개를 못 넘으면 
 - Excel 2종 + 확인요청 목록 Export
 - 보정계수 입력 화면 → 개발비 산정 연결
 - 재현성 테스트(동일 입력 3회), 실패 청크 노출, 예외 처리
+- **확정/잠정 FP 분리 표기** 및 미산정 기능 목록 UI 노출
 - 체크포인트: **재현성 ≤ 3%**, Excel 이 실제 산정서 양식으로 제출 가능
 
 ### Week 6 — Pilot 및 판정
